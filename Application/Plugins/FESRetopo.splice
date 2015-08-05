@@ -1,0 +1,149 @@
+{
+  "version" : "1015002",
+  "info" : {
+    "hostAppName" : "Softimage",
+    "hostAppVersion" : "13.0.114.0"
+    },
+  "nodes" : [
+    {
+      "bindings" : [
+        {
+          "operator" : {
+            "name" : "retopoOp",
+            "kl" : "require Math;\r\nrequire Geometry;\r\nrequire FESRetopo;\r\n\r\n\n\noperator retopoOp(\n  io PolygonMesh drawingMesh, \n  in String filePath, \n  in Boolean forceUpdateMesh, \n  io DrawingHandle handle, \n  in Boolean isCleaning, \n  in Boolean isClearManipulator, \n  io PolygonMesh mesh0, \n  in String pathToIcons, \n  in Integer rUpdater,\r\n  EvalContext context,\r\n  in Integer spatialQueryType\n) \r\n{\n  FESDrawRef(drawingMesh, filePath, handle, isCleaning, forceUpdateMesh);\r\n  \r\n  if(drawingMesh.pointCount() > 0)\r\n  {\r\n    EventDispatcher dispatcher = EventDispatcher_GetInstance();\r\n    if(dispatcher.hasManipulator(\"retopoManipulator\"))\r\n    {\r\n      RetopoManipulator m = dispatcher.getManipulator(\"retopoManipulator\");\r\n      m.SetClearWhenNonActive(isClearManipulator);\r\n      Vec3 points[Size] = m.GetPoints();\r\n      \r\n      REdge edges[Size] = m.GetEdges();\r\n      Vec3 normals[Size] = m.GetNormals();\r\n      \r\n      mesh0 = FESBuildMesh(points, edges, normals);\r\n    }\r\n    else\r\n    {\r\n      RetopoManipulator m = RetopoManipulator(context, pathToIcons, mesh0);\r\n      \r\n      m.AddInlineMesh(drawingMesh, spatialQueryType);\r\n      m.SetClearWhenNonActive(isClearManipulator);\r\n      dispatcher.registerManipulator('retopoManipulator', m);\r\n      dispatcher.pushManipulator('retopoManipulator');\r\n    }\r\n  }\r\n  \n}\n"
+            }
+          }
+        ]
+      }
+    ],
+  "extensions" : [
+    "InlineDrawing"
+    ],
+  "ports" : [
+    {
+      "name" : "drawingMesh",
+      "type" : "PolygonMesh",
+      "mode" : "io",
+      "options" : {
+        "SoftimagePortType" : 2,
+        "action" : "addInternalPort",
+        "dataType" : "PolygonMesh",
+        "extension" : "",
+        "portMode" : "IO",
+        "portName" : "drawingMesh",
+        "reference" : "sphere.polymsh.SpliceOp"
+        }
+      },
+    {
+      "name" : "filePath",
+      "type" : "String",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "String",
+        "extension" : "",
+        "portName" : "filePath",
+        "reference" : "sphere.polymsh.SpliceOp"
+        }
+      },
+    {
+      "name" : "forceUpdateMesh",
+      "type" : "Boolean",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Boolean",
+        "extension" : "",
+        "portName" : "forceUpdateMesh",
+        "reference" : "sphere.polymsh.SpliceOp"
+        },
+      "default" : "false"
+      },
+    {
+      "name" : "handle",
+      "type" : "DrawingHandle",
+      "mode" : "io",
+      "options" : {
+        "SoftimagePortType" : 2,
+        "action" : "addInternalPort",
+        "dataType" : "DrawingHandle",
+        "extension" : "InlineDrawing",
+        "portMode" : "IO",
+        "portName" : "handle",
+        "reference" : "sphere.polymsh.SpliceOp"
+        }
+      },
+    {
+      "name" : "isCleaning",
+      "type" : "Boolean",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Boolean",
+        "extension" : "",
+        "portName" : "isCleaning",
+        "reference" : "sphere.polymsh.SpliceOp"
+        },
+      "default" : "false"
+      },
+    {
+      "name" : "isClearManipulator",
+      "type" : "Boolean",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Boolean",
+        "extension" : "",
+        "portName" : "isClearManipulator",
+        "reference" : "sphere.polymsh.SpliceOp"
+        },
+      "default" : "false"
+      },
+    {
+      "name" : "mesh0",
+      "type" : "PolygonMesh",
+      "mode" : "io",
+      "options" : {
+        "SoftimagePortType" : 0
+        }
+      },
+    {
+      "name" : "pathToIcons",
+      "type" : "String",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "String",
+        "extension" : "",
+        "portName" : "pathToIcons",
+        "reference" : "sphere.polymsh.SpliceOp"
+        }
+      },
+    {
+      "name" : "rUpdater",
+      "type" : "Integer",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Integer",
+        "extension" : "",
+        "portName" : "rUpdater",
+        "reference" : "sphere.polymsh.SpliceOp"
+        },
+      "default" : "75"
+      },
+    {
+      "name" : "spatialQueryType",
+      "type" : "Integer",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Integer",
+        "extension" : "",
+        "portName" : "spatialQueryType",
+        "reference" : "sphere01_Retopo.polymsh.SpliceOp"
+        },
+      "default" : "0"
+      }
+    ]
+  }
