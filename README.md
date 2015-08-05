@@ -2,4 +2,4 @@
 Retopology tool for Softimage based on FabricEngine
 
 Instalation:
-1233
+1233sd
