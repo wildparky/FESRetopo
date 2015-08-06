@@ -1,7 +1,7 @@
 # FESRetopo
 Retopology tool for Softimage based on FabricEngine
 
-Instalation:
+# Installation:
 
 1. Unzip FESRetopo_FEModules.zip to any folder and add path to it to FabricEngine extensions path
 
