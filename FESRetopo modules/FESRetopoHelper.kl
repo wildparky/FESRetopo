@@ -1,0 +1,497 @@
+require Math;
+require Geometry;
+require FabricOBJ;
+
+struct pArray
+{
+  Size indexes[];
+};
+
+struct meshMapPair
+{
+  PolygonMesh mesh;
+  Size map[Size];
+};
+
+function String FESGetFileName(String file)
+{
+  Integer p = file.find(".");
+  if(p > -1)
+  {
+    return file.left(p);
+  }
+  else
+  {
+    return file;
+  }
+
+}
+
+function Boolean FESIsArrayContainsValue(in Size array[], Size value)
+{
+  for(Size i = 0; i < array.size(); i++)
+  {
+    if(array[i] == value)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+function Size FESGetEdgeIndex(Size p1Index, Size p2Index, REdge edges[Size])
+{
+  for(eIndex, edge in edges)
+  {
+    if((edge.firstPointIndex == p1Index && edge.secondPointIndex == p2Index) || (edge.firstPointIndex == p2Index && edge.secondPointIndex == p1Index))
+    {
+      return eIndex;
+    }
+  }
+  return -1;
+}
+
+function pArray[Size] FESBuildPerPointArray(in Vec3 points[Size], in REdge edges[Size])
+{
+  pArray toReturn[Size];
+  
+  for(pIndex in points)
+  {
+    pArray pA;
+    pA.indexes.resize(0);
+    toReturn.set(pIndex, pA);
+  }
+
+  for(e in edges)
+  {
+    REdge edge = edges[e];
+    if(toReturn.has(edge.firstPointIndex))
+    {
+      toReturn[edge.firstPointIndex].indexes.push(edge.secondPointIndex);
+    }
+    if(toReturn.has(edge.secondPointIndex))
+    {
+      toReturn[edge.secondPointIndex].indexes.push(edge.firstPointIndex);
+    }
+  }
+  return toReturn;
+}
+
+function Vec3 FESGetArrayAverage(Vec3 array[])
+{
+  Vec3 sum;
+  for(Size i = 0; i < array.size(); i++)
+  {
+    sum = sum + array[i];
+  }
+  if(sum.length > 0)
+  {
+    return sum.normalize();
+  }
+  else
+  {
+    return Vec3(0.0, 1.0, 0.0);
+  }
+}
+
+function Vec3 FESGetCross(Vec3 p1, Vec3 p2, Vec3 p3)
+{
+  Vec3 a1 = p2 - p1;
+  Vec3 a2 = p3 - p1;
+  return a1.cross(a2);
+}
+
+function FESAddTriangleToMesh(io PolygonMesh mesh, Vec3 points[Size], Size i1, Size i2, Size i3, 
+io Size genPoints[Size], in Vec3 normals[Size])
+{
+  Size index1, index2, index3;
+  if(genPoints.has(i1))
+  {
+    index1 = genPoints[i1];
+  }
+  else
+  {
+    index1 = mesh.createPoints(1);
+    genPoints[i1] = index1;
+  }
+
+  if(genPoints.has(i2))
+  {
+    index2 = genPoints[i2];
+  }
+  else
+  {
+    index2 = mesh.createPoints(1);
+    genPoints[i2] = index2;
+  }
+
+  if(genPoints.has(i3))
+  {
+    index3 = genPoints[i3];
+  }
+  else
+  {
+    index3 = mesh.createPoints(1);
+    genPoints[i3] = index3;
+  }
+  Vec3 p1 = points[i1];
+  Vec3 p2 = points[i2];
+  Vec3 p3 = points[i3];
+  mesh.setPointPosition( index1, p1);
+  mesh.setPointPosition( index2, p2);
+  mesh.setPointPosition( index3, p3);
+
+  Vec3 c = FESGetCross(p1, p2, p3);
+  Vec3 ns[];
+  ns.resize(3);
+  ns[0] = normals[i1];
+  ns[1] = normals[i2];
+  ns[2] = normals[i3];
+  Vec3 n = FESGetArrayAverage(ns);
+  if(c.dot(n) > 0)
+  {
+    mesh.addPolygon(index1, index2, index3);
+  }
+  else
+  {
+    mesh.addPolygon(index1, index3, index2);
+  }  
+  mesh.recomputePointNormals();
+}
+
+function FESAddQuadToMesh(io PolygonMesh mesh, Vec3 points[Size], Size i1, Size i2, Size i3, Size i4, 
+io Size genPoints[Size], in Vec3 normals[Size])
+{
+  //report(i1 + " " + i2 + " " + i3 + " " + i4);
+  Size index1, index2, index3, index4;
+  if(genPoints.has(i1))
+  {
+    index1 = genPoints[i1];
+  }
+  else
+  {
+    index1 = mesh.createPoints(1);
+    genPoints[i1] = index1;
+  }
+
+  if(genPoints.has(i2))
+  {
+    index2 = genPoints[i2];
+  }
+  else
+  {
+    index2 = mesh.createPoints(1);
+    genPoints[i2] = index2;
+  }
+
+  if(genPoints.has(i3))
+  {
+    index3 = genPoints[i3];
+  }
+  else
+  {
+    index3 = mesh.createPoints(1);
+    genPoints[i3] = index3;
+  }
+
+  if(genPoints.has(i4))
+  {
+    index4 = genPoints[i4];
+  }
+  else
+  {
+    index4 = mesh.createPoints(1);
+    genPoints[i4] = index4;
+  }
+  Vec3 p1 = points[i1];
+  Vec3 p2 = points[i2];
+  Vec3 p3 = points[i3];
+  Vec3 p4 = points[i4];
+
+  mesh.setPointPosition( index1, p1);
+  mesh.setPointPosition( index2, p2);
+  mesh.setPointPosition( index3, p3);
+  mesh.setPointPosition( index4, p4);
+
+
+  Vec3 c = FESGetCross(p1, p2, p3);
+  Vec3 ns[];
+  ns.resize(4);
+  ns[0] = normals[i1];
+  ns[1] = normals[i2];
+  ns[2] = normals[i3];
+  ns[3] = normals[i4];
+  Vec3 n = FESGetArrayAverage(ns);
+  if(c.dot(n) > 0)
+  {
+    mesh.addPolygon(index1, index2, index3, index4);
+  }
+  else
+  {
+    mesh.addPolygon(index1, index4, index3, index2);
+  }
+  mesh.recomputePointNormals();
+}
+
+function Boolean FESisArrayContains(Size value, Size array[])
+{
+  for(Size i = 0; i < array.size(); i++)
+  {
+    if(array[i] == value)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+function Boolean FESisCircle(Size i1, Size i2, Size i3, pArray perPointArrays[Size])
+{
+  if(perPointArrays.has(i1) && perPointArrays.has(i2) && perPointArrays.has(i3))
+  {
+    Size i1Array[] = perPointArrays[i1].indexes;
+    if(FESisArrayContains(i2, i1Array))
+    {
+      Size i2Array[] = perPointArrays[i2].indexes;
+      if(FESisArrayContains(i3, i2Array))
+      {
+        Size i3Array[] = perPointArrays[i3].indexes;
+        if(FESisArrayContains(i1, i3Array))
+        {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function Boolean FESisContainsTriangle(Size i1, Size i2, Size i3, Size i4, pArray perPointArrays[Size])
+{
+  if(FESisCircle(i1, i2, i4, perPointArrays) || FESisCircle(i2, i3, i4, perPointArrays) || FESisCircle(i1, i2, i3, perPointArrays) || FESisCircle(i1, i3, i4, perPointArrays))
+  {
+    return true;
+  }
+  
+  return false;
+}
+
+function meshMapPair FESBuildMesh(in Vec3 points[Size], in REdge edges[Size], in Vec3 normals[Size])
+{
+  meshMapPair toReturn;
+
+  pArray perPointArrays[Size] = FESBuildPerPointArray(points, edges);
+  Size genPoints[Size];
+  genPoints.clear();//key - index of point, value - index of the vertex in generated mesh
+  
+  PolygonMesh mesh();
+  mesh.clear();
+  mesh.beginStructureChanges();
+
+  for(startIndex in perPointArrays)
+  {
+    for(Size i = 0; i < perPointArrays[startIndex].indexes.size(); i++)
+    {
+      Size i1 = perPointArrays[startIndex].indexes[i];
+      if(i1 > startIndex && perPointArrays.has(i1))
+      {
+        for(Size j = 0; j < perPointArrays[i1].indexes.size(); j++)
+        {
+          Size i2 = perPointArrays[i1].indexes[j];
+          if(i2 > startIndex && i2 != i1 && perPointArrays.has(i2))
+          {
+            for(Size k = 0; k < perPointArrays[i2].indexes.size(); k++)
+            {
+              Size i3 = perPointArrays[i2].indexes[k];
+              if(i3 == startIndex && i1 < i2)
+              {//this is triangle
+                FESAddTriangleToMesh(mesh, points, startIndex, i1, i2, genPoints, normals);
+              }
+              if(i3 > startIndex && i3 != i2 && perPointArrays.has(i3))
+              {
+                for(Size l = 0; l < perPointArrays[i3].indexes.size(); l++)
+                {
+                  Size i4 = perPointArrays[i3].indexes[l];
+                  if(startIndex == i4 && i1 < i3 && !FESisContainsTriangle(startIndex, i1, i2, i3, perPointArrays))
+                  {//this is quad
+                    FESAddQuadToMesh(mesh, points, startIndex, i1, i2, i3, genPoints, normals);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  mesh.endStructureChanges();
+
+  toReturn.mesh = mesh;
+  toReturn.map = genPoints;
+  return toReturn;
+}
+
+function FESWriteOBJFile(String filePath, String fileName, PolygonMesh mesh)
+{
+  FilePath filePathObj(filePath);
+  if(filePathObj.exists())
+  {
+    filePathObj.append(fileName + ".obj");
+    TextWriter writer = TextWriter(filePathObj.string());
+    writer.writeLine("g " + fileName);
+    writer.writeLine("");
+    for(Size i = 0; i < mesh.pointCount(); i++)
+    {
+      Vec3 p = mesh.getPointPosition(i);
+      writer.writeLine("v " + p.x + " " + p.y + " " + p.z);
+    }
+    writer.writeLine("");
+    for(Size i = 0; i < mesh.pointCount(); i++)
+    {
+      Vec3 n = mesh.getPointNormal(i);
+      writer.writeLine("vn " + n.x + " " + n.y + " " + n.z);
+    }
+    writer.writeLine("");
+    for(Size i = 0; i < mesh.polygonCount(); i++)
+    {
+      String str = "f ";
+      for(Size j = 0; j < mesh.getPolygonSize(i); j++)
+      {
+        str += (mesh.getPolygonPoint(i, j) + 1) + "//" + (mesh.getPolygonPoint(i, j) + 1) + " ";
+      }
+      writer.writeLine(str);
+    }
+  }
+}
+
+function FESparseObjPolygonMesh(
+  io OBJDataHandle objHandle,
+  ImporterIdentifier identifier,
+  io PolygonMesh mesh) 
+{
+  UInt32 i, j, k, src;
+
+  Size polySizes[];
+  Size packedPolyPoints[];
+  Size packedPolyAttrIndices[];
+
+  objHandle.getEntityFaceTopologyIndices( identifier.index, packedPolyPoints );
+  objHandle.getEntityFaceIndices( identifier.index, packedPolyAttrIndices );
+  objHandle.getEntityFaceSizes( identifier.index, polySizes );
+
+  UInt32 nbPoly = polySizes.size();
+  UInt32 nbPoints = 0;
+  for( i = 0; i < packedPolyPoints.size(); ++i ) 
+  {
+    if( UInt32(packedPolyPoints[i]) >= nbPoints )
+    {
+      nbPoints = packedPolyPoints[i]+1;
+    }
+  }
+  mesh.createPoints( nbPoints );
+  mesh.addPolygons( polySizes, packedPolyPoints );
+
+  Vec3 vec3Data[];
+  Ref<Vec3Attribute> normals = mesh.getOrCreateNormals();
+
+  objHandle.getEntityPoints( identifier.index, vec3Data );
+  BitVector initPos;
+  initPos.resize(nbPoints);
+  src = 0;
+  for( i = 0; i < nbPoly; ++i ) 
+  {
+    UInt32 polSize = UInt32(polySizes[i]);
+    for( j = 0; j < polSize; ++j ) 
+    {
+      UInt32 point = mesh.getPolygonPoint( i, j );
+      if( !initPos.get(point) ) 
+      {
+        initPos.set(point);
+        UInt32 srcIndex = packedPolyAttrIndices[src];
+        mesh.setPointPosition( point, vec3Data[srcIndex] );
+      }
+      src++;
+    }
+  }
+  objHandle.getEntityNormals( identifier.index, vec3Data );
+
+  mesh.setAttributeFromPolygonPackedData( "normals", vec3Data, packedPolyAttrIndices );
+
+  Boolean hasTextureCoords = false;
+  objHandle.hasTextureCoords( hasTextureCoords );
+
+  if( hasTextureCoords ) 
+  {
+    Vec2 vec2Data[];
+    objHandle.getEntityTextureCoords( identifier.index, vec2Data );
+    mesh.setAttributeFromPolygonPackedData( "uvs0", vec2Data, packedPolyAttrIndices );
+  }
+}
+
+function FESReloadMesh(io PolygonMesh drawingMesh, in String filePath)
+{
+  FilePath filePathObj(filePath);
+  if(!filePathObj.exists())
+  {
+    report("File not found:" + filePath);
+    drawingMesh = PolygonMesh();
+  }
+  else
+  {
+    FilePath path = FilePath(filePath).expandEnvVars();
+    OBJDataHandle objHandle();
+    ImporterOptions options;
+    objHandle.openFileHandle(path.string(), options);
+
+    ImporterIdentifier identifiers[];
+    objHandle.getIdentifiers(identifiers);
+
+    Size nbPts, nbTris;
+    objHandle.getNbEntityPoints(-1, nbPts);
+    objHandle.getNbEntityFaces(-1, nbTris);
+    
+    String materialNames[];
+    objHandle.getMaterialNames( materialNames );
+
+    drawingMesh = PolygonMesh();
+    FESparseObjPolygonMesh(objHandle, identifiers[0], drawingMesh);
+    drawingMesh._validate();
+  }
+}
+
+function FESDrawRef(io PolygonMesh drawingMesh, in String filePath, io DrawingHandle handle, in Boolean isCleaning, in Boolean forceUpdateMesh)
+{
+  if(drawingMesh.pointCount() == 0 || forceUpdateMesh)
+  {
+    FESReloadMesh(drawingMesh, filePath);
+    handle = DrawingHandle();
+  }
+  if(isCleaning)
+  {
+    handle = DrawingHandle();
+  }
+  else
+  {
+    if(handle.isEmpty())
+    {
+      InlineDrawing drawing = handle.getDrawing();
+      InlineTransform rootTransform = handle.getRootTransform();
+      //InlineShader surfaceShader = drawing.registerShader(FESOGLSurfaceShader());
+      //InlineShader surfaceShader = drawing.registerShader(OGLSurfaceShader());
+      InlineShader surfaceShader = drawing.registerShader(FESOGLSurfaceShaderBack());
+      InlineMaterial surfaceMaterial = surfaceShader.getOrCreateMaterial("surfMat");
+      surfaceMaterial.setUniform('u_diffuseColor', Color(0.9, 0.9, 0.9));
+      surfaceMaterial.setUniform('u_ambientColor', Color(0.1, 0.1, 0.1));
+      //surfaceMaterial.setUniform('u_alpha', 0.8);
+      surfaceMaterial.setUniform('u_specularFactor', 80.0);
+      surfaceMaterial.setUniform('u_specularColor', Color(0.1, 0.1, 0.1));
+    
+      PolygonMesh mesh();
+      mesh = drawingMesh;
+
+      InlineMeshShape meshShape("mesh", mesh);
+      InlineInstance meshInstance = InlineInstance("mesh", rootTransform, meshShape, surfaceMaterial);
+    }
+  }
+}

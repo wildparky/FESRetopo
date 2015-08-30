@@ -104,20 +104,22 @@ def FESRetopo_Define( in_ctxt ):
 	oProp.AddParameter3("sqType", c.siString, "sparseGrid", "", "", False, False)
 	oProp.AddParameter3("isCleaning", c.siBool, 0, "", "", False, False)
 	oProp.AddParameter3("isHideHUD", c.siBool, 0, "", "", False, False)
+	oProp.AddParameter3("relaxStrength", c.siDouble, 1.0, 0.0, 20.0, False, False)
+	oProp.AddParameter3("isShowRetopoMesh", c.siBool, 1, "", "", False, False)
 
 	oProp.AddParameter3("sMode", c.siBool, 0, "", "", False, False)
-	oProp.AddParameter3("sCamera", c.siString, "", "", "", False, False)
 	oProp.AddParameter3("sMesh", c.siString, "", "", "", False, False)
+	oProp.AddParameter3("sCamera", c.siString, "", "", "", False, False)
 	oProp.AddParameter3("sMat", c.siString, "", "", "", False, False)
 	oProp.AddParameter3("sWire", c.siBool, 0, "", "", False, False)
-	oProp.AddParameter3("sCulling", c.siBool, 0, "", "", False, False)
+	#oProp.AddParameter3("sCulling", c.siBool, 0, "", "", False, False)
 	return true
 
 def FESRetopo_startRetopo_OnClicked():
 	oProp = PPG.Inspected(0)
 	pathStr = oProp.Parameters("refPath").Value
 	pluginPath = Application.Plugins("FESRetopoPlugin").OriginPath
-	if os.path.exists(os.path.join(pluginPath, "FESRetopo.splice")) and len(pathStr) > 0:# and os.path.exists(pathStr):
+	if os.path.exists(os.path.join(pluginPath, "FESRetopo.splice")) and len(pathStr) > 0:
 		name = GetFileFromPath(oProp.Parameters("refPath").Value)
 		sel = Application.Selection
 		mesh = None
@@ -132,14 +134,17 @@ def FESRetopo_startRetopo_OnClicked():
 		Application.IsolateSelected("", 1)
 		Application.SetValue(mesh.FullName + ".visibility.selectability", False, "")
 		oProp.Parameters("sMat").Value = mesh.Materials[0].Name
-		Application.ApplyShader("$XSI_DSPRESETS\\Shaders\\Material\\Lambert.Preset", "", "", "", "siLetLocalMaterialsOverlap")
+		Application.ApplyShader("$XSI_DSPRESETS\\Shaders\\Material\\Phong.Preset", "", "", "", "siLetLocalMaterialsOverlap")
 		matName = str(mesh.Materials[0])
-		Application.SetValue(matName + ".Lambert.diffuse.red", 1.0, "")
-		Application.SetValue(matName + ".Lambert.diffuse.green", 0.592, "")
-		Application.SetValue(matName + ".Lambert.diffuse.blue", 0.0, "")
-		Application.SetValue(matName + ".Lambert.ambient.red", 0, "")
-		Application.SetValue(matName + ".Lambert.ambient.blue", 0, "")
-		Application.SetValue(matName + ".Lambert.ambient.green", 0, "")
+		Application.SetValue(matName + ".Phong.transparency.red", 1, "")
+		Application.SetValue(matName + ".Phong.transparency.blue", 1, "")
+		Application.SetValue(matName + ".Phong.transparency.green", 1, "")
+		#Application.SetValue(matName + ".Lambert.diffuse.red", 1.0, "")
+		#Application.SetValue(matName + ".Lambert.diffuse.green", 0.592, "")
+		#Application.SetValue(matName + ".Lambert.diffuse.blue", 0.0, "")
+		#Application.SetValue(matName + ".Lambert.ambient.red", 0, "")
+		#Application.SetValue(matName + ".Lambert.ambient.blue", 0, "")
+		#Application.SetValue(matName + ".Lambert.ambient.green", 0, "")
 		Application.DeselectAll()
 		#remember camera mode
 		cameraProps = Application.GetViewCamera(-1).Properties("Camera Display")
@@ -147,9 +152,9 @@ def FESRetopo_startRetopo_OnClicked():
 		oProp.Parameters("sCamera").Value = cameraProps.viewportmodename.Value
 		Application.SetDisplayMode(Application.GetViewCamera(-1), "shaded")
 		oProp.Parameters("sWire").Value = cameraProps.Parameters("wireontopunsel").Value
-		oProp.Parameters("sCulling").Value = cameraProps.Parameters("culbackface").Value
+		#oProp.Parameters("sCulling").Value = cameraProps.Parameters("culbackface").Value
 		cameraProps.Parameters("wireontopunsel").Value = False
-		cameraProps.Parameters("culbackface").Value = True
+		#cameraProps.Parameters("culbackface").Value = True
 
 		sqNum = 0
 		if oProp.Parameters("sqType").Value == "sparseGrid":
@@ -168,6 +173,7 @@ def FESRetopo_startRetopo_OnClicked():
 		Application.SetValue(mesh.FullName + ".polymsh.SpliceOp.isCleaning",  oProp.Parameters("isCleaning").Value, "")
 		Application.SetValue(mesh.FullName + ".polymsh.SpliceOp.isClearManipulator",  oProp.Parameters("isHideHUD").Value, "")
 		
+		#Application.SetValue(mesh.FullName + ".visibility.viewvis", False, "")
 
 
 		oProp.Parameters("sMode").Value = True
@@ -180,7 +186,7 @@ def FESRetopo_stopRetopo_OnClicked():
 
 	Application.SetDisplayMode(Application.GetViewCamera(-1), oProp.Parameters("sCamera").Value)
 	Application.GetViewCamera(-1).Properties("Camera Display").Parameters("wireontopunsel").Value = oProp.Parameters("sWire").Value
-	Application.GetViewCamera(-1).Properties("Camera Display").Parameters("culbackface").Value = oProp.Parameters("sCulling").Value
+	#Application.GetViewCamera(-1).Properties("Camera Display").Parameters("culbackface").Value = oProp.Parameters("sCulling").Value
 	Application.IsolateAll("", 1)
 	mesh = Application.Dictionary.GetObject(oProp.Parameters("sMesh").Value, False)
 	if mesh:
@@ -188,6 +194,7 @@ def FESRetopo_stopRetopo_OnClicked():
 		Application.SetValue(mesh.FullName + ".visibility.selectability", True, "")
 		Application.FreezeObj(mesh, "", "")
 		Application.SelectObj(mesh, "", True)
+		#Application.SelectObj(mesh, "", True)
 		Application.DeleteObj(mesh.Materials[0])
 		Application.AssignMaterial("Sources.Materials.DefaultLib." + oProp.Parameters("sMat").Value + "," + mesh.FullName, "siLetLocalMaterialsOverlap")
 
@@ -211,8 +218,10 @@ def buildUI():
 
 	oItem = oLayout.AddEnumControl("sqType", sqTypes, "Spatial query type")
 
+	oItem = oLayout.AddItem("isShowRetopoMesh", "Show retopo mesh")
 	oItem = oLayout.AddItem("isCleaning", "Hide reference")
 	oItem = oLayout.AddItem("isHideHUD", "Hide HUD")
+	oItem = oLayout.AddItem("relaxStrength", "Relax")
 
 	if not oProp.Parameters("sMode").Value:
 		oItem = oLayout.AddButton("startRetopo", "Start retopo")
@@ -243,5 +252,25 @@ def FESRetopo_isHideHUD_OnChanged():
 			Application.SetValue(mesh.FullName + ".polymsh.SpliceOp.isClearManipulator",  oProp.Parameters("isHideHUD").Value, "")
 	
 	return
+
+
+def FESRetopo_relaxStrength_OnChanged():
+	oProp = PPG.Inspected(0)
+	if len(oProp.Parameters("sMesh").Value) > 0:
+		mesh = Application.Dictionary.GetObject(oProp.Parameters("sMesh").Value, False)
+		if mesh:
+			Application.SetValue(mesh.FullName + ".polymsh.SpliceOp.relaxStrength",  oProp.Parameters("relaxStrength").Value, "")
+	
+	return
+
+def FESRetopo_isShowRetopoMesh_OnChanged():
+	oProp = PPG.Inspected(0)
+	if len(oProp.Parameters("sMesh").Value) > 0:
+		mesh = Application.Dictionary.GetObject(oProp.Parameters("sMesh").Value, False)
+		if mesh:
+			Application.SetValue(mesh.FullName + ".polymsh.SpliceOp.isShowInlineRetopoMesh",  oProp.Parameters("isShowRetopoMesh").Value, "")
+	
+	return
+
 
 	

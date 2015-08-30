@@ -1,0 +1,2325 @@
+require Manipulation;
+require InlineDrawing;
+require FESRetopo;
+require FilePath;
+
+struct Vec3BoolPair
+{
+  Vec3 vector;
+  Boolean logic;
+};
+
+struct SizeArray
+{
+  Size array[];
+};
+
+
+object RetopoManipulator : Manipulator 
+{
+  Boolean isEnable;
+  String hostName;
+  String graphName;
+  Size updaterIndex;
+  Boolean isClearWhenNonactive;
+  Boolean isSymmetry;
+  Size symmetryType;
+  Scalar relaxStrength;
+  Boolean isShowInlineRetopoMesh;
+  //--------buttons section----------
+  Size mode;
+  Size buttonSize;
+  Size buttonSpace;
+  Boolean isB01A;
+  Boolean isB01H;
+
+  Boolean isB02A;
+  Boolean isB02H;
+
+  Boolean isB03A;
+  Boolean isB03H;
+
+  Boolean isB04A;
+  Boolean isB04H;
+
+  Boolean isB05A;
+  Boolean isB05H;
+
+  InlineMaterial button01AM;
+  InlineMaterial button01PM;
+  InlineMaterial button01HM;
+  InlineInstance button01Instance;
+
+  InlineMaterial button02AM;
+  InlineMaterial button02PM;
+  InlineMaterial button02HM;
+  InlineInstance button02Instance;
+
+  InlineMaterial button03AM;
+  InlineMaterial button03PM;
+  InlineMaterial button03HM;
+  InlineInstance button03Instance;
+
+  InlineMaterial button04AM;
+  InlineMaterial button04PM;
+  InlineMaterial button04HM;
+  InlineInstance button04Instance;
+
+  InlineMaterial button05AM;
+  InlineMaterial button05PM;
+  InlineMaterial button05HM;
+  InlineInstance button05Instance;
+
+  InlineMaterial brushMaterial;
+  InlineMaterial brushAddonMaterial;
+  InlineInstance brush;
+  InlineInstance brushAddon;
+
+  Scalar moveBrushRadius;
+  Scalar relaxBrushRadius;
+  Scalar moveBrushInnerCoefficient;
+  Scalar relaxBrushInnerCoefficient;
+
+  Vec2 startDragBrushSizePosition;
+  Scalar startChangeBrushSize;
+  Scalar startChangeBrushInnerCoefficient;
+  Boolean isStartChangeBrushSize;
+  Boolean isClickBrush;
+  Scalar brushSizeChangeSpeed;
+
+  Boolean isClickOnEdge;
+  Boolean isShouldCreateEdgeWithMove;
+  Size createdEdgeIndex;
+  Vec3 oldEdgeCenter;//here we store center of duplicated edge (when we move on mode 2)
+  Vec3 oldEdgeDirection;
+  Scalar oldEdgeLength;
+
+  Boolean isMouseClick;//use it for modes 2 and 3
+
+  //------------ghost section----------
+  Size closestPointIndex;
+  Integer closestEdgeIndex;
+  
+  //InlineInstance raycastInst;
+  InlineMaterial ghostMat;
+  InlineInstance ghostInstance;
+
+  //InlineShape ghostPointShape;
+  InlineMaterial ghostPointMaterial;
+  InlineMaterial ghostActivePointMaterial;
+  //InlineShape ghostEdgeShape;
+  InlineMaterial ghostEdgeMaterial;
+  InlineMaterial ghostActiveEdgeMaterial;
+  InlineMaterial ghostVirtualEdgeMaterial;
+
+  InlineInstance ghostPointsInstances[Size];
+  InlineInstance ghostEdgesInstances[Size];
+  InlineInstance ghostVirtualEdgesInstance;
+
+  Boolean isDrawGhost;
+
+  Vec3 points[Size];
+  REdge edges[Size];
+  Vec3 normals[Size];
+
+  Size prevPointIndex;
+  Scalar selectAngle;
+  
+  Size movingPointIndex;
+
+  REdge virtualEdge;
+  Boolean isVirtualEdge;
+
+  Size underBrushIds[];
+  Scalar underBrushCoefficients[];
+  Vec3 startPointsPositions[Size];//kew - index of the point in underBrushIds
+  Vec2 startMoveBrushMousePosition;
+  Vec3 startClickPosition;
+
+
+  Scalar pointSize;
+  Scalar edgeSize;
+  //-------------------Reference object----------
+  PolygonMesh refMesh;
+
+  //------------------Retopology data
+  InlineMaterial retopoMaterial;
+  InlineInstance retopoInstance;
+  Size vertexToPointsMap[];//map to indexes in this.points
+
+  //---------------HUD parameters----------------
+  Scalar magicW;
+  Scalar magicH;
+};
+
+
+
+function RetopoManipulator(EvalContext context, String picturePath, io PolygonMesh startMesh, io DrawingHandle handle)
+{
+  this.hostName = context.host;
+  this.graphName = context.graph;
+  this.updaterIndex = 0;
+  this.init(picturePath);
+  this.isDrawGhost = false;
+  this.ghostPointsInstances.clear();
+  this.ghostEdgesInstances.clear();
+  this.edges.clear();
+  this.points.clear();
+  this.normals.clear();
+  this.underBrushIds.resize(0);
+  this.underBrushCoefficients.resize(0);
+  this.startPointsPositions.clear();
+  this.ResetPrevPoint();
+  this.selectAngle = 0.01;
+  //this.buttonSize = 32.0;
+  this.buttonSize = 48.0;
+  this.buttonSpace = 20.0;
+  this.mode = 0;
+  this.isB01A = false;
+  this.isB02A = false;
+  this.isB03A = false;
+  this.isB04A = false;
+  this.isB05A = false;
+  this.isB01H = false;
+  this.isB02H = false;
+  this.isB03H = false;
+  this.isB04H = false;
+  this.isB05H = false;
+  this.ActivateMode(0);
+  this.prevPointIndex = -1;
+  this.movingPointIndex = -1;
+  this.closestPointIndex = -1;
+  this.closestEdgeIndex = -1;
+
+  this.pointSize = 6.0;
+  this.edgeSize = 1.5;
+
+  this.moveBrushRadius = 0.05;
+  this.relaxBrushRadius = 0.05;
+  this.brushSizeChangeSpeed = 0.0001;
+  this.relaxBrushInnerCoefficient = 0.5;
+  this.moveBrushInnerCoefficient = 0.5;
+
+  this.isStartChangeBrushSize = false;
+  this.isShowInlineRetopoMesh = true;
+
+
+  this.magicW = 32.0 / 28.0;
+  this.magicH = 32.0 / 26.0;
+
+
+  //constract points and edges from start mesh
+  if(startMesh.pointCount() > 0)
+  {
+    startMesh.recomputePointNormals();
+  }
+  for(Size i = 0; i < startMesh.pointCount(); i++)
+  {
+    this.points[i] = startMesh.getPointPosition(i);
+    this.normals[i] = startMesh.getPointNormal(i);
+    Size edgeCount = startMesh.getPointEdgeCount(i);
+    for(Size j = 0; j < edgeCount; j++)
+    {
+      PolygonMeshEdge e = startMesh.getPointEdge(i ,j);
+      Size v1 = startMesh.getEdgeFirstPoint(e);
+      Size v2 = startMesh.getEdgeSecondPoint(e);
+      if((v1 == i && v2 > i) || (v2 == i && v1 > i))
+      {
+        REdge newEdge(v1, v2);
+        this.edges[this.edges.size()] = newEdge;
+      }
+    }
+  }
+
+  //InlineDrawing drawing = handle.getDrawing();
+  InlineDrawing drawing = OGLInlineDrawing_GetInstance();
+  InlineShader surfaceShader = drawing.registerShader(FESOGLSurfaceShader());
+  this.retopoMaterial = surfaceShader.getOrCreateMaterial("retopoMaterial");
+  this.retopoMaterial.setUniform('u_diffuseColor', Color(0.1, 0.1, 0.1));
+  this.retopoMaterial.setUniform('u_ambientColor', Color(0.882, 0.866, 0.749));
+  //this.retopoMaterial.setUniform('u_alpha', 0.4);
+  this.retopoMaterial.setUniform('u_alpha', 1.0);
+  this.retopoMaterial.setUniform('u_specularFactor', 80.0);
+  this.retopoMaterial.setUniform('u_specularColor', Color(0.1, 0.1, 0.1));
+
+  PolygonMesh retopoMesh();
+
+  InlineTransform retopoTransform = StaticInlineTransform("retopoTransform", Xfo());
+  drawing.getRoot().addChild(retopoTransform);
+
+  InlineMeshShape meshShape("retopoMesh", retopoMesh);
+  this.retopoInstance = InlineInstance("retopoMesh", retopoTransform, meshShape, this.retopoMaterial);
+
+
+  this.FullGhostUpdate(true);
+}
+
+function Vec3[Size] RetopoManipulator.GetPoints()
+{
+  return this.points;
+}
+
+function REdge[Size] RetopoManipulator.GetEdges()
+{
+  return this.edges;
+}
+
+function Vec3[Size] RetopoManipulator.GetNormals()
+{
+  return this.normals;
+}
+
+function PolygonMesh RetopoManipulator.GetRetopoMesh()
+{
+  InlineMeshShape mShape = this.retopoInstance.getShape();
+  
+  return mShape.getMesh().clone();
+}
+
+function RetopoManipulator.SetClearWhenNonActive!(Boolean isClear)
+{
+  this.isClearWhenNonactive = isClear;
+  if(isClear && !this.isEnable)
+  {
+    this.SetGhostUnVisible();
+    this.HideButtons();
+  }
+}
+
+function RetopoManipulator.SetManipulatorProperties!(Boolean isSymmetry, Size symmetryType, Scalar relaxStrength, Boolean isShowInlineRetopoMesh)
+{
+  this.isSymmetry = isSymmetry;
+  this.symmetryType = symmetryType;
+  this.relaxStrength = relaxStrength * 0.01;
+  this.isShowInlineRetopoMesh = isShowInlineRetopoMesh;
+}
+
+function RetopoManipulator.UpdateHost!(MouseEvent mouseEvent)
+{
+  mouseEvent.getHost().requestRedraw();
+  if(this.hostName == "Maya")
+  {
+    String args[];
+    args.push('"' + this.graphName + '.rUpdater"');
+    args.push(this.updaterIndex);
+    mouseEvent.getHost().callCustomCommand('setAttr', args);
+  }
+  else if(this.hostName == "Softimage")
+  {
+    String args[];
+    args.push(this.graphName + ".rUpdater");
+    args.push(this.updaterIndex);
+    mouseEvent.getHost().callCustomCommand('setValue', args);
+  }
+  this.updaterIndex++;
+}
+
+function RetopoManipulator.ResetPrevPoint!()
+{
+  this.prevPointIndex = -1;
+}
+
+function RetopoManipulator.BreakeEdgeChain!()
+{
+  this.ResetPrevPoint();
+}
+
+function Size RetopoManipulator.GetPointsCount()
+{
+  return this.points.size();
+}
+
+function Size RetopoManipulator.GetEdgesCount()
+{
+  return this.edges.size();
+}
+
+function Size[] RetopoManipulator.GetPointsKeys()
+{
+  Size toReturn[];
+  toReturn.resize(0);
+  for(k in this.points)
+  {
+    toReturn.push(k);
+  }
+  return toReturn;
+}
+
+function Size[] RetopoManipulator.GetEdgesKeys()
+{
+  Size toReturn[];
+  toReturn.resize(0);
+  for(k in this.edges)
+  {
+    toReturn.push(k);
+  }
+  return toReturn;
+}
+
+function Size RetopoManipulator.GetNewPointIndex()
+{
+  Size pc = this.GetPointsCount();
+  for(Size i = 0; i < pc; i++)
+  {
+    if(!this.points.has(i))
+    {
+      return i;
+    }
+  }
+  return pc;
+}
+
+function Size RetopoManipulator.GetNewEdgeIndex()
+{
+  Size ec = this.GetEdgesCount();
+  for(Size i = 0; i < ec; i++)
+  {
+      if(!this.edges.has(i))
+      {
+        return i;
+      }
+  }
+  return ec;
+}
+
+function Size RetopoManipulator.AddPoint!(Vec3 point, Vec3 normal, Boolean shouldUpdate)
+{
+  Size newIndex = this.GetNewPointIndex();
+  this.points[newIndex] = point;
+  this.normals[newIndex] = normal;
+
+  Size newEdgeIndex = -1;
+  //Boolean shouldRebuildMesh = shouldUpdate;
+
+  if(this.prevPointIndex == -1)
+  {//this is star point of the edge
+    this.prevPointIndex = newIndex;
+    //shouldRebuildMesh = false;
+  }
+  else
+  {//this is second point of the edge
+    REdge e(this.prevPointIndex, newIndex);
+    this.prevPointIndex = newIndex;
+    newEdgeIndex = this.GetNewEdgeIndex();
+    this.edges[newEdgeIndex] = e;
+  }
+  Size newIndexes[];
+  newIndexes.resize(0);
+  newIndexes.push(newIndex);
+  Size newEdgeIndexes[];
+  newEdgeIndexes.resize(0);
+  if(newEdgeIndex != -1)
+  {
+    newEdgeIndexes.push(newEdgeIndex);
+  }
+  
+  this.UpdateGhost(newIndexes, newEdgeIndexes);
+
+  if(newEdgeIndexes.size() > 0 && shouldUpdate)//shouldRebuildMesh)
+  {
+    this.RebuildRetopoMesh();
+  }
+  
+
+  return newIndex;
+}
+
+function Boolean RetopoManipulator.IsEdgeExist(REdge newEdge)
+{
+  for(k, v in this.edges)
+  {
+    if((v.firstPointIndex == newEdge.firstPointIndex && v.secondPointIndex == newEdge.secondPointIndex) ||
+      (v.firstPointIndex == newEdge.secondPointIndex && v.secondPointIndex == newEdge.firstPointIndex))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+function RetopoManipulator.CompleteEdgeByPoint!(Size pointIndex, Boolean shouldUpdate)
+{
+  Size newEdgeIndex = -1;
+  if(this.prevPointIndex == -1)
+  {//this is the firs point
+    this.prevPointIndex = pointIndex;
+  }
+  else if(this.prevPointIndex != pointIndex && this.points.has(pointIndex) && this.points.has(this.prevPointIndex))
+  {//this is the end of an edge
+    REdge e(this.prevPointIndex, pointIndex);
+    if(this.IsEdgeExist(e))
+    {
+      newEdgeIndex = -1;
+    }
+    else
+    {
+      this.prevPointIndex = pointIndex;
+      newEdgeIndex = this.GetNewEdgeIndex();
+      this.edges[newEdgeIndex] = e;
+    }
+    
+  }
+  Size newEdgeIndexes[];
+  newEdgeIndexes.resize(0);
+  newEdgeIndexes.push(newEdgeIndex);
+  Size a[];
+  a.resize(0);
+  this.UpdateGhost(a, newEdgeIndexes);
+
+  if(shouldUpdate)
+  {
+    this.RebuildRetopoMesh();
+  }
+  
+
+}
+
+function RetopoManipulator.init!(String picturePath)
+{
+  InlineDrawing drawing = OGLInlineDrawing_GetInstance();
+
+  //------------ghost points-------------
+  InlineShader pointShader = drawing.registerShader(FESOGLPointsEdgesFlat());
+  InlineMaterial ghostPointMat = pointShader.getOrCreateMaterial("pointMaterial");
+  ghostPointMat.setUniform("u_color", Color(0.14, 0.24, 1.0, 1.0));
+  this.ghostPointMaterial = ghostPointMat;
+  InlineShader pointActiveShader = drawing.registerShader(FESOGLPointsEdgesFlat());
+  InlineMaterial ghostActivePointMat = pointActiveShader.getOrCreateMaterial("activePointMaterial");
+  ghostActivePointMat.setUniform("u_color", Color(1.0, 0.0, 0.0, 1.0));
+  this.ghostActivePointMaterial = ghostActivePointMat;
+  
+  //----------ghost edge-------------
+  InlineShader edgeShader = drawing.registerShader(FESOGLEdgesFlat());
+  InlineMaterial ghostEdgeMat = edgeShader.getOrCreateMaterial("edgeMaterial");
+  ghostEdgeMat.setUniform("u_color", Color(1.0, 0.62, 0.17, 1.0));
+  this.ghostEdgeMaterial = ghostEdgeMat;
+  
+  InlineShader edgeActiveShader = drawing.registerShader(FESOGLEdgesFlat());
+  InlineMaterial ghostActiveEdgeMat = edgeActiveShader.getOrCreateMaterial("edgeActiveMaterial");
+  ghostActiveEdgeMat.setUniform("u_color", Color(1.0, 0.0, 0.0, 1.0));
+  this.ghostActiveEdgeMaterial = ghostActiveEdgeMat;
+
+  InlineShader edgeVirtualShader = drawing.registerShader(FESOGLEdgesFlat());
+  InlineMaterial ghostVirtualEdgeMat = edgeVirtualShader.getOrCreateMaterial("edgeVirtualMaterial");
+  ghostVirtualEdgeMat.setUniform("u_color", Color(0.141, 0.898, 0.302, 1.0));
+  this.ghostVirtualEdgeMaterial = ghostVirtualEdgeMat;
+
+
+  InlineTransform virtualEdgeTransform = StaticInlineTransform("virtualEdgeTransform", Xfo());
+  drawing.getRoot().addChild(virtualEdgeTransform);
+  Lines lines = Lines();
+  lines.addPoints(2);
+  lines.setPosition(0, Vec3(0, 0, 0));
+  lines.setPosition(1, Vec3(0, 0, 0));
+  lines.addSegment(0, 1);
+  Ref<GeometryAttributes> atrs = lines.getAttributes();
+  atrs.getOrCreateNormals();
+  InlineLinesShape edgeShape = InlineLinesShape("virtualGhostEdge", lines);
+  edgeShape.setLineWidth(2.0);
+  this.ghostVirtualEdgesInstance = InlineInstance("virtualEdgeInstance", virtualEdgeTransform, edgeShape);
+
+  //------------buttons----------
+  InlineShader hudShader = drawing.registerShader(FESOGLHUDShader());
+  this.button01PM = hudShader.getOrCreateMaterial("pm01");
+  this.button01AM = hudShader.getOrCreateMaterial("am01");
+  this.button01HM = hudShader.getOrCreateMaterial("hm01");
+  this.button02PM = hudShader.getOrCreateMaterial("pm02");
+  this.button02AM = hudShader.getOrCreateMaterial("am02");
+  this.button02HM = hudShader.getOrCreateMaterial("hm02");
+  this.button03PM = hudShader.getOrCreateMaterial("pm03");
+  this.button03AM = hudShader.getOrCreateMaterial("am03");
+  this.button03HM = hudShader.getOrCreateMaterial("hm03");
+  this.button04PM = hudShader.getOrCreateMaterial("pm04");
+  this.button04AM = hudShader.getOrCreateMaterial("am04");
+  this.button04HM = hudShader.getOrCreateMaterial("hm04");
+  this.button05PM = hudShader.getOrCreateMaterial("pm05");
+  this.button05AM = hudShader.getOrCreateMaterial("am05");
+  this.button05HM = hudShader.getOrCreateMaterial("hm05");
+
+  FilePath path01A = FilePath(picturePath) / "b1_a.png";
+  FilePath path01P = FilePath(picturePath) / "b1_p.png";
+  FilePath path01H = FilePath(picturePath) / "b1_h.png";
+  FilePath path02A = FilePath(picturePath) / "b2_a.png";
+  FilePath path02P = FilePath(picturePath) / "b2_p.png";
+  FilePath path02H = FilePath(picturePath) / "b2_h.png";
+  FilePath path03A = FilePath(picturePath) / "b3_a.png";
+  FilePath path03P = FilePath(picturePath) / "b3_p.png";
+  FilePath path03H = FilePath(picturePath) / "b3_h.png";
+  FilePath path04A = FilePath(picturePath) / "b4_a.png";
+  FilePath path04P = FilePath(picturePath) / "b4_p.png";
+  FilePath path04H = FilePath(picturePath) / "b4_h.png";
+  FilePath path05A = FilePath(picturePath) / "b5_a.png";
+  FilePath path05P = FilePath(picturePath) / "b5_p.png";
+  FilePath path05H = FilePath(picturePath) / "b5_h.png";
+  if(path01A.exists())
+  {
+    InlineTexture textureButton01AM = drawing.registerTexture(InlineFileBasedTexture(path01A.string()));
+    this.button01AM.setUniform('u_texture', textureButton01AM);
+    this.button01AM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button01AM.setUniform('u_color', Color(0.55, 0.55, 0.55, 1.0));
+  }
+  if(path01P.exists())
+  {
+    InlineTexture textureButton01PM = drawing.registerTexture(InlineFileBasedTexture(path01P.string()));
+    this.button01PM.setUniform('u_texture', textureButton01PM);
+    this.button01PM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button01PM.setUniform('u_color', Color(0.4, 0.4, 0.4, 1.0));
+  }
+  if(path01H.exists())
+  {
+    InlineTexture textureButton01HM = drawing.registerTexture(InlineFileBasedTexture(path01H.string()));
+    this.button01HM.setUniform('u_texture', textureButton01HM);
+    this.button01HM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button01HM.setUniform('u_color', Color(1.0, 0.47, 0.0, 1.0));
+  }
+
+  if(path02A.exists())
+  {
+    InlineTexture textureButton02AM = drawing.registerTexture(InlineFileBasedTexture(path02A.string()));
+    this.button02AM.setUniform('u_texture', textureButton02AM);
+    this.button02AM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button02AM.setUniform('u_color', Color(0.55, 0.55, 0.55, 1.0));
+  }
+  if(path02P.exists())
+  {
+    InlineTexture textureButton02PM = drawing.registerTexture(InlineFileBasedTexture(path02P.string()));
+    this.button02PM.setUniform('u_texture', textureButton02PM);
+    this.button02PM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button02PM.setUniform('u_color', Color(0.4, 0.4, 0.4, 1.0));
+  }
+  if(path02H.exists())
+  {
+    InlineTexture textureButton02HM = drawing.registerTexture(InlineFileBasedTexture(path02H.string()));
+    this.button02HM.setUniform('u_texture', textureButton02HM);
+    this.button02HM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button02HM.setUniform('u_color', Color(1.0, 0.47, 0.0, 1.0));
+  }
+
+  if(path03A.exists())
+  {
+    InlineTexture textureButton03AM = drawing.registerTexture(InlineFileBasedTexture(path03A.string()));
+    this.button03AM.setUniform('u_texture', textureButton03AM);
+    this.button03AM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button03AM.setUniform('u_color', Color(0.55, 0.55, 0.55, 1.0));
+  }
+  if(path03P.exists())
+  {
+    InlineTexture textureButton03PM = drawing.registerTexture(InlineFileBasedTexture(path03P.string()));
+    this.button03PM.setUniform('u_texture', textureButton03PM);
+    this.button03PM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button03PM.setUniform('u_color', Color(0.4, 0.4, 0.4, 1.0));
+  }
+  if(path03H.exists())
+  {
+    InlineTexture textureButton03HM = drawing.registerTexture(InlineFileBasedTexture(path03H.string()));
+    this.button03HM.setUniform('u_texture', textureButton03HM);
+    this.button03HM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button03HM.setUniform('u_color', Color(1.0, 0.47, 0.0, 1.0));
+  }
+
+  if(path04A.exists())
+  {
+    InlineTexture textureButton04AM = drawing.registerTexture(InlineFileBasedTexture(path04A.string()));
+    this.button04AM.setUniform('u_texture', textureButton04AM);
+    this.button04AM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button04AM.setUniform('u_color', Color(0.55, 0.55, 0.55, 1.0));
+  }
+  if(path04P.exists())
+  {
+    InlineTexture textureButton04PM = drawing.registerTexture(InlineFileBasedTexture(path04P.string()));
+    this.button04PM.setUniform('u_texture', textureButton04PM);
+    this.button04PM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button04PM.setUniform('u_color', Color(0.4, 0.4, 0.4, 1.0));
+  }
+  if(path04H.exists())
+  {
+    InlineTexture textureButton04HM = drawing.registerTexture(InlineFileBasedTexture(path04H.string()));
+    this.button04HM.setUniform('u_texture', textureButton04HM);
+    this.button04HM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button04HM.setUniform('u_color', Color(1.0, 0.47, 0.0, 1.0));
+  }
+
+  if(path05A.exists())
+  {
+    InlineTexture textureButton05AM = drawing.registerTexture(InlineFileBasedTexture(path05A.string()));
+    this.button05AM.setUniform('u_texture', textureButton05AM);
+    this.button05AM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button05AM.setUniform('u_color', Color(0.55, 0.55, 0.55, 1.0));
+  }
+  if(path05P.exists())
+  {
+    InlineTexture textureButton05PM = drawing.registerTexture(InlineFileBasedTexture(path05P.string()));
+    this.button05PM.setUniform('u_texture', textureButton05PM);
+    this.button05PM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button05PM.setUniform('u_color', Color(0.4, 0.4, 0.4, 1.0));
+  }
+  if(path05H.exists())
+  {
+    InlineTexture textureButton05HM = drawing.registerTexture(InlineFileBasedTexture(path05H.string()));
+    this.button05HM.setUniform('u_texture', textureButton05HM);
+    this.button05HM.setUniform('u_color', Color(0.0, 0.0, 0.0, 0.0));
+  }
+  else
+  {
+    this.button05HM.setUniform('u_color', Color(1.0, 0.47, 0.0, 1.0));
+  }
+
+  PolygonMesh quad01();
+  quad01.addPlane(Xfo(Quat(Vec3(1,0,0), HALF_PI)), 1.0, 1.0, 1, 1, true, true);
+  InlineShape shape01 = InlineMeshShape("ss01", quad01);
+  drawing.registerShape(shape01);
+  InlineTransform tr01 = StaticInlineTransform("st01", Xfo());
+  drawing.getRoot().addChild(tr01);
+  this.button01Instance = InlineInstance("sm01", tr01, shape01);
+
+  PolygonMesh quad02();
+  quad02.addPlane(Xfo(Quat(Vec3(1,0,0), HALF_PI)), 1.0, 1.0, 1, 1, true, true);
+  InlineShape shape02 = InlineMeshShape("ss02", quad02);
+  drawing.registerShape(shape02);
+  InlineTransform tr02 = StaticInlineTransform("st02", Xfo());
+  drawing.getRoot().addChild(tr02);
+  this.button02Instance = InlineInstance("sm02", tr02, shape02);
+
+  PolygonMesh quad03();
+  quad03.addPlane(Xfo(Quat(Vec3(1,0,0), HALF_PI)), 1.0, 1.0, 1, 1, true, true);
+  InlineShape shape03 = InlineMeshShape("ss03", quad03);
+  drawing.registerShape(shape03);
+  InlineTransform tr03 = StaticInlineTransform("st03", Xfo());
+  drawing.getRoot().addChild(tr03);
+  this.button03Instance = InlineInstance("sm03", tr03, shape03);
+
+  PolygonMesh quad04();
+  quad04.addPlane(Xfo(Quat(Vec3(1,0,0), HALF_PI)), 1.0, 1.0, 1, 1, true, true);
+  InlineShape shape04 = InlineMeshShape("ss04", quad04);
+  drawing.registerShape(shape04);
+  InlineTransform tr04 = StaticInlineTransform("st04", Xfo());
+  drawing.getRoot().addChild(tr04);
+  this.button04Instance = InlineInstance("sm04", tr04, shape04);
+
+  PolygonMesh quad05();
+  quad05.addPlane(Xfo(Quat(Vec3(1,0,0), HALF_PI)), 1.0, 1.0, 1, 1, true, true);
+  InlineShape shape05 = InlineMeshShape("ss05", quad05);
+  drawing.registerShape(shape05);
+  InlineTransform tr05 = StaticInlineTransform("st05", Xfo());
+  drawing.getRoot().addChild(tr05);
+  this.button05Instance = InlineInstance("sm05", tr05, shape05);
+
+  //-------------Brush----------------------
+  InlineShader brushHudShader = drawing.registerShader(OGLHUDShader("OGLHUDShader"));
+
+  this.brushMaterial = brushHudShader.getOrCreateMaterial("brush");
+  this.brushMaterial.setUniform('u_color', Color(1.0, 0.0, 0.0));
+  this.brushAddonMaterial = brushHudShader.getOrCreateMaterial("brushAddonMat");
+  this.brushAddonMaterial.setUniform('u_color', Color(1.0, 0.0, 0.0));
+
+  Lines brLines();
+  brLines.addCircle(Xfo(Quat(Vec3(1,0,0), HALF_PI)), 1.0, 24);
+  InlineShape brShape = InlineLinesShape("brush", brLines);
+  drawing.registerShape(brShape);
+  InlineShape brAddonShape = InlineLinesShape("brushAddonShape", brLines);
+  drawing.registerShape(brAddonShape);
+  InlineTransform brTransform = StaticInlineTransform("brush_Transform", Xfo());
+  InlineTransform brAddonTransform = StaticInlineTransform("brushAddon_Transform", Xfo());
+  drawing.getRoot().addChild(brTransform);
+  drawing.getRoot().addChild(brAddonTransform);
+  this.brush = InlineInstance("brushInst", brTransform, brShape);
+  this.brushAddon = InlineInstance("brushAddonInst", brAddonTransform, brAddonShape);
+}
+
+function Size RetopoManipulator.UpdateButtons!(io Event event, in Vec2 position)
+{
+  Vec2 viewportDim = event.getViewport().getDimensions();
+
+  Scalar viewportAspectRatio = viewportDim.x / viewportDim.y;
+  //calculate shifts and sizes in pixels
+  Scalar yPosP = (viewportDim.y - this.buttonSpace - this.buttonSize / 2);
+  Scalar xPosP = (this.buttonSpace + this.buttonSize) / 2;
+
+  //convert pixels sizes to percents of screen size 
+  Vec3 s = Vec3((this.buttonSize * this.magicW) / (2*viewportDim.x), (this.buttonSize * this.magicH) / (2*viewportDim.y), 0.0);
+
+  Scalar yPos = (yPosP - viewportDim.y / 2) / (viewportDim.y / 2);
+  Scalar xPos = 2*xPosP / viewportDim.x;
+
+  //calculate and sraw brush
+  Scalar radius = 0.0;
+  Scalar addonScale = 1.0;
+  if(this.mode == 3)
+  {
+    radius = this.moveBrushRadius;
+    addonScale = this.moveBrushInnerCoefficient;
+  }
+  else if(this.mode == 4)
+  {
+    radius = this.relaxBrushRadius;
+    addonScale = this.relaxBrushInnerCoefficient;
+  }
+  if(this.mode == 3 || this.mode == 4)
+  {
+    Vec3 brushPos = Vec3(((position.x / viewportDim.x) - 0.5) * 2.0, ((position.y / viewportDim.y) - 0.5) * -2.0, 0);
+    Vec3 brushScale = Vec3(radius / viewportAspectRatio, radius, radius);
+    Vec3 brushAddonScale = Vec3(addonScale * radius / viewportAspectRatio, addonScale * radius, addonScale * radius);
+
+    Xfo brushXfo(brushPos, Quat(), brushScale);
+    Xfo brushAddonXfo(brushPos, Quat(), brushAddonScale);
+    this.brush.getTransform().setLocalXfo(0, brushXfo);
+    this.brushAddon.getTransform().setLocalXfo(0, brushAddonXfo);
+  }
+
+  Xfo instance01Xfo(
+    //Vec3(-1 * xPos, -1 * yPos, 0.0), 
+    Vec3(-4 * xPos, -1 * yPos, 0.0), 
+    Quat(), 
+    s
+  );
+  Xfo instance02Xfo(
+    //Vec3(xPos, -1 * yPos, 0.0), 
+    Vec3(-2 * xPos, -1 * yPos, 0.0), 
+    Quat(), 
+    s
+  );
+  Xfo instance03Xfo(
+    //Vec3(xPos, -1 * yPos, 0.0), 
+    Vec3(0, -1 * yPos, 0.0), 
+    Quat(), 
+    s
+  );
+  Xfo instance04Xfo(
+    //Vec3(xPos, -1 * yPos, 0.0), 
+    Vec3(2 * xPos, -1 * yPos, 0.0), 
+    Quat(), 
+    s
+  );
+  Xfo instance05Xfo(
+    //Vec3(xPos, -1 * yPos, 0.0), 
+    Vec3(4 * xPos, -1 * yPos, 0.0), 
+    Quat(), 
+    s
+  );
+  this.button01Instance.getTransform().setLocalXfo(0, instance01Xfo);
+  this.button02Instance.getTransform().setLocalXfo(0, instance02Xfo);
+  this.button03Instance.getTransform().setLocalXfo(0, instance03Xfo);
+  this.button04Instance.getTransform().setLocalXfo(0, instance04Xfo);
+  this.button05Instance.getTransform().setLocalXfo(0, instance05Xfo);
+  
+  //is mouse over buttons
+  this.isB01A = false;
+  this.isB01H = false;
+  this.isB02A = false;
+  this.isB02H = false;
+  this.isB03A = false;
+  this.isB03H = false;
+  this.isB04A = false;
+  this.isB04H = false;
+  this.isB05A = false;
+  this.isB05H = false;
+  if(this.mode == 0)
+  {
+    this.isB01A = true;
+  }
+  else if(this.mode == 1)
+  {
+    this.isB02A = true;
+  }
+  else if(this.mode == 2)
+  {
+    this.isB03A = true;
+  }
+  else if(this.mode == 3)
+  {
+    this.isB04A = true;
+  }
+  else if(this.mode == 4)
+  {
+    this.isB05A = true;
+  }
+
+
+  if(!this.isB01A && (position.x - (viewportDim.x / 2) > -4*xPosP - this.buttonSize / 2) && (position.x - (viewportDim.x / 2) < -4*xPosP + this.buttonSize / 2) &&
+    position.y > yPosP - this.buttonSize / 2 && position.y < yPosP + this.buttonSize / 2)
+  {
+    this.isB01H = true;
+  }
+  else if(!this.isB02A && position.x - (viewportDim.x / 2) > -2*xPosP - this.buttonSize / 2 && position.x - (viewportDim.x / 2) < -2*xPosP + this.buttonSize / 2 &&
+    position.y > yPosP - this.buttonSize / 2 && position.y < yPosP + this.buttonSize / 2)
+  {
+    this.isB02H = true;
+  }
+  else if(!this.isB03A && (-1*position.x + (viewportDim.x / 2) < (this.buttonSize / 2)) && (position.x - (viewportDim.x / 2) < (this.buttonSize / 2)) &&
+    position.y > yPosP - this.buttonSize / 2 && position.y < yPosP + this.buttonSize / 2)
+  {
+    this.isB03H = true;
+  }
+  else if(!this.isB04A && position.x - (viewportDim.x / 2) > 2*xPosP - this.buttonSize / 2 && position.x - (viewportDim.x / 2) < 2*xPosP + this.buttonSize / 2 &&
+    position.y > yPosP - this.buttonSize / 2 && position.y < yPosP + this.buttonSize / 2)
+  {
+    this.isB04H = true;
+  }
+  else if(!this.isB05A && position.x - (viewportDim.x / 2) > 4*xPosP - this.buttonSize / 2 && position.x - (viewportDim.x / 2) < 4*xPosP + this.buttonSize / 2 &&
+    position.y > yPosP - this.buttonSize / 2 && position.y < yPosP + this.buttonSize / 2)
+  {
+    this.isB05H = true;
+  }
+  this.ShowButtons();
+  if(this.isB01H)
+  {
+    return 0;
+  }
+  else if(this.isB02H)
+  {
+    return 1;
+  }
+  else if(this.isB03H)
+  {
+    return 2;
+  }
+  else if(this.isB04H)
+  {
+    return 3;
+  }
+  else if(this.isB05H)
+  {
+    return 4;
+  }
+  else
+  {    
+    return -1;
+  }
+}
+
+operator FESSetVertexPosition<<<index>>>(io PolygonMesh mesh, in Size vToPMap[], in Vec3 points[Size])
+{
+  Size pIndex = vToPMap[index];
+  mesh.setPointPosition(index, points[pIndex]);
+}
+
+function RetopoManipulator.UpdateRetopoMeshPositions!()
+{
+  //report("Update retopoMesh positions");//vertexToPointsMap
+  InlineMeshShape mShape = this.retopoInstance.getShape();
+  PolygonMesh mesh = mShape.getMesh();
+  FESSetVertexPosition<<<this.vertexToPointsMap.size()>>>(mesh, this.vertexToPointsMap, this.points);
+
+  mesh.recomputePointNormals();
+
+  InlineMeshShape meshShape("retopoMesh", mesh);
+  this.retopoInstance.setShape(meshShape);
+}
+
+
+function RetopoManipulator.RebuildRetopoMesh!()
+{
+  meshMapPair meshBuildData = FESBuildMesh(this.points, this.edges, this.normals);
+
+  this.vertexToPointsMap.resize(meshBuildData.map.size());
+
+  for(pIndex, vIndex in meshBuildData.map)
+  {
+    this.vertexToPointsMap[vIndex] = pIndex;
+  }
+
+  InlineMeshShape meshShape("retopoMesh", meshBuildData.mesh);
+  this.retopoInstance.setShape(meshShape);
+}
+
+
+function RetopoManipulator.FullGhostUpdate!(Boolean shouldRebuildMesh)
+{
+  //report("Full update");
+
+  this.SetGhostUnVisible();
+  this.ghostPointsInstances.clear();
+  this.ghostEdgesInstances.clear();
+  this.UpdateGhost(this.GetPointsKeys(), this.GetEdgesKeys()); 
+
+  if(shouldRebuildMesh)
+  {
+    this.RebuildRetopoMesh();
+  }
+  
+}
+
+function RetopoManipulator.UpdateGhostPointsAndEdges!(Size[] pointsIndexes, Size[] edgeIndexes)
+{
+  //report("Update points and edges");
+  for(Size i = 0; i < pointsIndexes.size(); i++)
+  {
+    this.UpdateGhostPoint(pointsIndexes[i]);
+  }
+  for(Size i = 0; i < edgeIndexes.size(); i++)
+  {
+    this.UpdateGhostEdge(edgeIndexes[i]);
+  }
+  this.UpdateRetopoMeshPositions();
+}
+
+function RetopoManipulator.UpdateGhostPoint!(Size pIndex)
+{
+  //report("Update points");
+  InlinePointsShape pSh = this.ghostPointsInstances[pIndex].getShape();
+  Ref<Vec3Attribute> pNormals = pSh.getPoints().getAttributes().getOrCreateNormals();
+  Ref<Vec3Attribute> pPositions = pSh.getPoints().getAttributes().getOrCreatePositions();
+  pNormals.values[0] = this.normals[pIndex];
+  pPositions.values[0] = this.points[pIndex];
+  pPositions.incrementVersion();
+  pNormals.incrementVersion();
+}
+
+function RetopoManipulator.UpdateGhostEdge!(Size eIndex)
+{
+  //report("Update edges");
+  InlineLinesShape eShape = this.ghostEdgesInstances[eIndex].getShape();
+  Lines ls = eShape.getLines();
+  ls.setPosition(0, this.points[this.edges[eIndex].firstPointIndex]);
+  ls.setPosition(1, this.points[this.edges[eIndex].secondPointIndex]);
+  InlineLinesShape edgeShape = InlineLinesShape("ghostEdge", ls);
+  edgeShape.setLineWidth(2.0);
+  this.ghostEdgesInstances[eIndex].setShape(edgeShape);
+
+  InlineLinesShape eSh = this.ghostEdgesInstances[eIndex].getShape();
+  Ref<Vec3Attribute> avNormals = eSh.getLines().getAttributes().getOrCreateVec3Attribute("avNormals");
+  avNormals.values[0] = (this.normals[this.edges[eIndex].firstPointIndex] + this.normals[this.edges[eIndex].secondPointIndex]).unit_safe();
+  avNormals.incrementVersion();
+}
+
+function RetopoManipulator.UpdateGhost!(Size newPointIndexes[], Size newEdgeIndexes[])//Boolean isNewPoint, Boolean isNewEdge)
+{
+  //report("Update");
+  InlineDrawing drawing = OGLInlineDrawing_GetInstance();
+  
+  for(Size i = 0; i < newPointIndexes.size(); i++)
+  {
+    Size newPointIndex = newPointIndexes[i];
+    if(newPointIndex + 1 > 0)
+    {
+      InlineTransform pointTransform = StaticInlineTransform("pointTransform", Xfo());
+      drawing.getRoot().addChild(pointTransform);
+
+      Points points = Points();
+      points.getOrCreateSizesAttribute();
+      points.resize(1);
+      Ref<GeometryAttributes> atrs = points.attributes;
+      atrs.getOrCreateNormals();
+      atrs.getOrCreatePositions();
+      InlinePointsShape pointShape = InlinePointsShape("ghostPoint", points);
+      pointShape.setPointSize(this.pointSize);
+      
+      this.ghostPointsInstances.set(newPointIndex, InlineInstance("pointInstance", pointTransform, pointShape));
+
+      InlinePointsShape pSh = this.ghostPointsInstances[newPointIndex].getShape();
+      Ref<Vec3Attribute> pNormals = pSh.getPoints().getAttributes().getOrCreateNormals();
+      Ref<Vec3Attribute> pPositions = pSh.getPoints().getAttributes().getOrCreatePositions();
+      pNormals.values[0] = this.normals[newPointIndex];
+      pPositions.values[0] = this.points[newPointIndex];
+      pPositions.incrementVersion();
+      pNormals.incrementVersion();
+    }
+  }
+
+  for(Size i = 0; i < newEdgeIndexes.size(); i++)
+  {
+    Size newEdgeIndex = newEdgeIndexes[i];
+    if(newEdgeIndex + 1 > 0)
+    {
+      InlineTransform edgeTransform = StaticInlineTransform("edgeTransform", Xfo());
+      drawing.getRoot().addChild(edgeTransform);
+      Lines lines = Lines();
+      lines.addPoints(2);
+      REdge e = this.edges[newEdgeIndex];
+      lines.setPosition(0, this.points[e.firstPointIndex]);
+      lines.setPosition(1, this.points[e.secondPointIndex]);
+      lines.addSegment(0, 1);
+      Ref<GeometryAttributes> atrs = lines.getAttributes();
+      atrs.getOrCreateNormals();
+      InlineLinesShape edgeShape = InlineLinesShape("ghostEdge", lines);
+      edgeShape.setLineWidth(this.edgeSize);
+      this.ghostEdgesInstances.set(newEdgeIndex, InlineInstance("edgeInstance", edgeTransform, edgeShape));
+
+      InlineLinesShape eSh = this.ghostEdgesInstances[newEdgeIndex].getShape();
+      Ref<Vec3Attribute> avNormals = eSh.getLines().getAttributes().getOrCreateVec3Attribute("avNormals");
+      avNormals.values[0] = (this.normals[e.firstPointIndex] + this.normals[e.secondPointIndex]).unit_safe();
+      avNormals.incrementVersion();
+    }
+  }
+
+  if(this.isEnable || (!this.isEnable && !this.isClearWhenNonactive))
+  {
+    this.SetGhostVisible();
+  }
+  else
+  {
+    this.SetGhostUnVisible();
+  }
+  
+}
+
+function RetopoManipulator.ActivateMode!(Size m)
+{
+  if(m != -1 && m != this.mode)
+  {
+    this.BreakeEdgeChain();
+  }
+  if(m == 0)
+  {
+    this.mode = 0;
+  }
+  else if(m == 1)
+  {
+    this.mode = 1;
+  }
+  else if(m == 2)
+  {
+    this.mode = 2;
+  }
+  else if(m == 3)
+  {
+    this.mode = 3;
+  }
+  else if(m == 4)
+  {
+    this.mode = 4;
+  }
+  
+}
+
+function RetopoManipulator.RecalculatePositionsAndNormals!()
+{
+  for(k in this.points)
+  {
+    Vec3 pos = this.points[k];
+    this.points[k] = this.GetClosestPosition(pos);
+    this.normals[k] = this.GetClosestNormal(pos);
+  }
+}
+
+function RetopoManipulator.AddInlineMesh!(PolygonMesh mesh, Integer sqType)
+{
+  //InlineDrawing drawing = OGLInlineDrawing_GetInstance();
+  //this.raycastInst = SimpleInlineInstance("meshInst", drawing.getRoot(), InlineMeshShape("meshShape", mesh));
+
+  this.refMesh = mesh;
+  GenericValueContainer options = GenericValueContainer();
+  if(sqType == 0)
+  {
+    PrepareForSpatialQueries_setSparseGrid(options);
+  }
+  else
+  {
+    PrepareForSpatialQueries_setOctree(options);
+  }
+  this.refMesh.prepareForSpatialQueries(1000, options);
+
+  this.RecalculatePositionsAndNormals();
+
+  //Update positions
+  for(pIndex, pPosition in this.points)
+  {
+    this.points[pIndex] = this.GetClosestPosition(pPosition);
+  }
+
+  this.FullGhostUpdate(true);
+
+  
+}
+
+function Vec3BoolPair RetopoManipulator.GetPositionOnReference!(io MouseEvent mouseEvent, Vec2 mousePosition)
+{
+  Vec3BoolPair toReturn;
+  toReturn.vector = Vec3();
+  toReturn.logic = false;
+
+  Ray ray = mouseEvent.getViewport().calcRayFromScreenPos(mousePosition);
+  
+  GeometryLocation location = this.refMesh.raycast(ray, false, 0.0, SCALAR_INFINITE);
+  if(location.isValid())
+  {
+    Xfo xfo();
+    Vec3 objectSpacePoint = this.refMesh.getPositionAtLocation(location);
+    Vec3 worldSpacePoint = xfo.transformVector(objectSpacePoint);
+    toReturn.vector = worldSpacePoint;
+    toReturn.logic = true;
+  }
+
+  return toReturn;
+}
+
+function RetopoManipulator.SplitEdge!(io MouseEvent mouseEvent, Size edgeIndex)
+{
+  Size tempPrevIndex = this.prevPointIndex;
+  Size b1 = this.edges[edgeIndex].firstPointIndex;
+  Size b2 = this.edges[edgeIndex].secondPointIndex;
+  
+  Size newPointIndex = this.FindIntersectionPoint(mouseEvent, true, true);
+  if(newPointIndex != -1)
+  {
+    this.prevPointIndex = b1;
+    this.CompleteEdgeByPoint(newPointIndex, false);
+    this.prevPointIndex = b2;
+    this.CompleteEdgeByPoint(newPointIndex, false);
+    
+    this.DeleteEdge(edgeIndex, true);
+
+    this.prevPointIndex = newPointIndex;
+  }
+  
+}
+
+function Vec3 RetopoManipulator.GetClosestNormal(Vec3 point)
+{
+  //PolygonMesh pMesh = this.raycastInst.getShape().getGeometry();
+  //GeometryLocation location = pMesh.getClosest(point, Vec3(1, 1, 1), SCALAR_INFINITE);
+  GeometryLocation location = this.refMesh.getClosest(point, Vec3(1, 1, 1), SCALAR_INFINITE);
+  
+  Vec3 n = this.refMesh.getNormalAtLocation(location);
+  return n;
+}
+
+function Vec3 RetopoManipulator.GetClosestPosition(Vec3 point)
+{
+  //PolygonMesh pMesh = this.raycastInst.getShape().getGeometry();
+  //GeometryLocation location = pMesh.getClosest(point, Vec3(1, 1, 1), SCALAR_INFINITE);
+  GeometryLocation location = this.refMesh.getClosest(point, Vec3(1, 1, 1), SCALAR_INFINITE);
+  
+  Vec3 p = this.refMesh.getPositionAtLocation(location);
+  return p;
+}
+
+function Size RetopoManipulator.FindIntersectionPoint!(io MouseEvent mouseEvent, Boolean isFindClosest, Boolean isShouldAdd)
+{
+  Vec3BoolPair intersection = this.GetPositionOnReference(mouseEvent, mouseEvent.pos);
+  Boolean isFind = intersection.logic;
+  Vec3 p = intersection.vector;
+  Size newPointIndex = -1;
+  if(isFind || isFindClosest)
+  {
+    if(isFindClosest)
+    {
+      this.FindClosestPointOnScreen(mouseEvent, false);
+      if(this.closestPointIndex != -1)
+      {
+        this.CompleteEdgeByPoint(this.closestPointIndex, true);
+      }
+      else if(isFind)
+      {
+        newPointIndex = this.AddPoint(p, this.GetClosestNormal(p), true);
+      }
+    } 
+    else if(isFind)
+    {
+      newPointIndex = this.AddPoint(p, this.GetClosestNormal(p), false);
+    }
+  }
+  return newPointIndex;
+  
+}
+
+function RetopoManipulator.FindClosestPointOnScreen!(io MouseEvent mouseEvent, Boolean isIgnoreMovingPoint)
+{
+  this.closestPointIndex = -1;
+  this.closestEdgeIndex = -1;
+  Vec2 mPos = mouseEvent.pos;
+  Ray ray = mouseEvent.getViewport().calcRayFromScreenPos(mPos);
+  Vec3 dir = ray.direction;
+  Vec3 cameraPosition = mouseEvent.getViewport().getCamera().getMat44().translation();
+  
+  Size closeCandidates[];
+
+  for(key, value in this.points)
+  {
+    Vec3 toPoint = value - cameraPosition;
+    Scalar angle = toPoint.angleTo(dir);
+    if(angle < this.selectAngle)
+    {
+      if(isIgnoreMovingPoint)
+      {
+        if(key != this.movingPointIndex)
+        {
+          closeCandidates.push(key); 
+        }
+      }
+      else
+      {
+        closeCandidates.push(key); 
+      }
+    }
+  }
+  for(Size i = 0; i < closeCandidates.size(); i++)
+  {
+    Vec3 p = this.points[closeCandidates[i]];
+    
+    //Vec3 n = this.GetClosestNormal(p);
+    Vec3 n = this.normals[closeCandidates[i]];
+    if(n.dot(dir) < 0)
+    {
+      this.closestPointIndex = closeCandidates[i];
+      i = closeCandidates.size();
+    }
+  }
+}
+
+function Boolean RetopoManipulator.IsEdgeOnTheList(REdge edge)
+{
+  for(i, e in this.edges)
+  {
+    if((e.firstPointIndex == edge.firstPointIndex && e.secondPointIndex == edge.secondPointIndex) ||
+      (e.firstPointIndex == edge.secondPointIndex && e.secondPointIndex == edge.firstPointIndex))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+function RetopoManipulator.FindVirtualEdgeOnScreen!(io MouseEvent mouseEvent)
+{
+  Scalar foundLimitAngle = 0.1;
+  this.isVirtualEdge = false;
+
+  Vec2 mPos = mouseEvent.pos;
+  Ray ray = mouseEvent.getViewport().calcRayFromScreenPos(mPos);
+  Vec3 dir = ray.direction;
+  Vec3 cameraPosition = mouseEvent.getViewport().getCamera().getMat44().translation();
+
+  Size pointsCandidates[];//this array contains all visible points
+  for(key, value in this.points)
+  {
+    Vec3 n = this.normals[key];
+    Vec3 d = value - cameraPosition;
+    if(n.dot(d) < 0 && dir.angleTo(d) < foundLimitAngle)
+    {
+      pointsCandidates.push(key);
+    }
+  }
+
+
+  //next find all pairs of points with the edge closest to mouse position
+  Size p1Cand[];
+  Size p2Cand[];
+  Scalar distCand[];
+  for(Integer i = 0; i < pointsCandidates.size() - 1; i++)
+  {
+    for(Integer j = i + 1; j < pointsCandidates.size(); j++)
+    {
+      Vec3 p1 = this.points[pointsCandidates[i]] - cameraPosition;
+      Vec3 p2 = this.points[pointsCandidates[j]] - cameraPosition;
+      REdge vEdge(pointsCandidates[i], pointsCandidates[j]);
+      if(dir.angleTo(p1) + dir.angleTo(p2) - p1.angleTo(p2) < this.selectAngle * 0.1 && !this.IsEdgeOnTheList(vEdge))
+      {
+        p1Cand.push(pointsCandidates[i]);
+        p2Cand.push(pointsCandidates[j]);
+        Vec3 v1 = this.points[pointsCandidates[i]];
+        Vec3 v2 = this.points[pointsCandidates[j]];
+        distCand.push(v1.distanceTo(v2));
+      }
+    }
+  }
+
+  if(distCand.size() > 0)
+  {//there are some candidates
+    Size minIndex = 0;
+    Scalar minDistance = distCand[0];
+    for(Size i = 1; i < distCand.size(); i++)
+    {
+      if(distCand[i] < minDistance)
+      {
+        minIndex = i;
+        minDistance = distCand[i];
+      }
+    }
+
+    REdge vEdge(p1Cand[minIndex], p2Cand[minIndex]);
+    this.isVirtualEdge = true;
+    this.virtualEdge = vEdge;
+  }
+  else
+  {
+    this.isVirtualEdge = false;
+  }
+
+
+  if(this.isVirtualEdge)
+  {
+    InlineLinesShape eShape = this.ghostVirtualEdgesInstance.getShape();
+    Lines ls = eShape.getLines();
+    ls.setPosition(0, this.points[this.virtualEdge.firstPointIndex]);
+    ls.setPosition(1, this.points[this.virtualEdge.secondPointIndex]);
+    InlineLinesShape edgeShape = InlineLinesShape("virtualGhostEdge", ls);
+    edgeShape.setLineWidth(2.0);
+    this.ghostVirtualEdgesInstance.setShape(edgeShape);
+
+    InlineLinesShape eSh = this.ghostVirtualEdgesInstance.getShape();
+    Ref<Vec3Attribute> avNormals = eSh.getLines().getAttributes().getOrCreateVec3Attribute("avNormals");
+    avNormals.values[0] = (this.normals[this.virtualEdge.firstPointIndex] + this.normals[this.virtualEdge.secondPointIndex]).unit_safe();
+    avNormals.incrementVersion();
+  }
+
+
+}
+
+function RetopoManipulator.FindClosestEdgeOnScreen!(io MouseEvent mouseEvent)
+{
+  this.closestEdgeIndex = -1;
+  Vec2 mPos = mouseEvent.pos;
+  Ray ray = mouseEvent.getViewport().calcRayFromScreenPos(mPos);
+  Vec3 dir = ray.direction;
+  Vec3 cameraPosition = mouseEvent.getViewport().getCamera().getMat44().translation();
+
+  Size closeCandidates[];
+
+  for(key, value in this.edges)
+  {
+    Vec3 p1 = this.points[value.firstPointIndex] - cameraPosition;
+    Vec3 p2 = this.points[value.secondPointIndex] - cameraPosition;
+    if(dir.angleTo(p1) + dir.angleTo(p2) - p1.angleTo(p2) < this.selectAngle * 0.2)
+    {
+      closeCandidates.push(key);
+    }
+  }
+
+  for(Size i = 0; i < closeCandidates.size(); i++)
+  {
+    REdge e = this.edges[closeCandidates[i]];
+    
+    //Vec3 n1 = this.GetClosestNormal(this.points[e.firstPointIndex]);
+    Vec3 n1 = this.normals[e.firstPointIndex];
+    //Vec3 n2 = this.GetClosestNormal(this.points[e.secondPointIndex]);
+    Vec3 n2 = this.normals[e.secondPointIndex];
+    if(n1.dot(dir) < 0 && n2.dot(dir) < 0)
+    {
+      this.closestEdgeIndex = closeCandidates[i];
+      i = closeCandidates.size();
+    }
+  }
+}
+
+function RetopoManipulator.ChangeBrushSize!(io MouseEvent mouseEvent)
+{
+  if(this.isStartChangeBrushSize)
+  {
+    Vec2 pos = mouseEvent.pos;
+    Scalar xDrag = this.startDragBrushSizePosition.x - pos.x;
+    Scalar yDrag = this.startDragBrushSizePosition.y - pos.y;
+    if(this.mode == 3)
+    {
+      this.moveBrushRadius = this.startChangeBrushSize + xDrag * this.brushSizeChangeSpeed * 4;
+      this.moveBrushInnerCoefficient = this.startChangeBrushInnerCoefficient + yDrag * this.brushSizeChangeSpeed * 20;
+    }
+    else if(this.mode == 4)
+    {
+      this.relaxBrushRadius = this.startChangeBrushSize + xDrag * this.brushSizeChangeSpeed * 4;
+      this.relaxBrushInnerCoefficient = this.startChangeBrushInnerCoefficient + yDrag * this.brushSizeChangeSpeed * 20;
+    }
+  }
+
+  if(this.moveBrushRadius < 0.001)
+  {
+    this.moveBrushRadius = 0.001;
+  }
+  if(this.relaxBrushRadius < 0.001)
+  {
+    this.relaxBrushRadius = 0.001;
+  }
+  if(this.relaxBrushInnerCoefficient > 1.0)
+  {
+    this.relaxBrushInnerCoefficient = 1.0;
+  }
+  if(this.moveBrushInnerCoefficient > 1.0)
+  {
+    this.moveBrushInnerCoefficient = 1.0;
+  }
+  if(this.relaxBrushInnerCoefficient < 0.05)
+  {
+    this.relaxBrushInnerCoefficient = 0.05;
+  }
+  if(this.moveBrushInnerCoefficient < 0.05)
+  {
+    this.moveBrushInnerCoefficient = 0.05;
+  }
+
+}
+
+function RetopoManipulator.SetPointPosition!(Size pointIndex, Vec3 newPosition)
+{
+  if(this.points.has(pointIndex))
+  {
+    this.points[pointIndex] = newPosition;
+    this.normals[pointIndex] = this.GetClosestNormal(newPosition);
+    //find all edges with this edpoint
+    Size ei[];
+    ei.resize(0);
+    for(k, v in this.edges)
+    {
+      if(v.firstPointIndex == pointIndex || v.secondPointIndex == pointIndex)
+      {
+        ei.push(k);
+      }
+    }
+    
+    Size pi[];
+    pi.resize(0);
+    pi.push(pointIndex);
+    this.UpdateGhostPointsAndEdges(pi, ei);
+  }
+}
+
+function RetopoManipulator.MovingProcess!(io MouseEvent mouseEvent, Vec2 mPosition)
+{
+  Vec3BoolPair intersection = this.GetPositionOnReference(mouseEvent, mPosition);
+  if(intersection.logic)
+  {
+    this.SetPointPosition(this.movingPointIndex, intersection.vector);
+  }
+}
+
+operator FESMoveBrushOp<<<index>>>(in Size arrayIds[], io Vec3 points[Size], io Vec3 normals[Size], in Vec3 delta, in Vec3 startPositions[Size], in PolygonMesh mesh,
+  in Scalar coefficients[])
+{
+  Size pointId = arrayIds[index];
+  Scalar c = coefficients[index];
+  Vec3 newPosition = startPositions[pointId] + delta * c;
+
+  GeometryLocation location = mesh.getClosest(newPosition, Vec3(1, 1, 1), SCALAR_INFINITE);
+  points[pointId] = mesh.getPositionAtLocation(location);
+  normals[pointId] = mesh.getNormalAtLocation(location);
+}
+
+
+function RetopoManipulator.MoveBrushProcess!(io MouseEvent mouseEvent, Vec2 mPosition)
+{
+  Vec3BoolPair intersection = this.GetPositionOnReference(mouseEvent, mPosition);
+  Vec3 delta = intersection.vector - this.startClickPosition;
+
+  FESMoveBrushOp<<<this.underBrushIds.size()>>>(this.underBrushIds, this.points, this.normals, delta, this.startPointsPositions, this.refMesh, this.underBrushCoefficients);
+  
+  Size ei[];
+  ei.resize(0);
+  for(key, value in this.edges)
+  {
+    if(FESIsArrayContainsValue(this.underBrushIds, value.firstPointIndex) || FESIsArrayContainsValue(this.underBrushIds, value.secondPointIndex))
+    {
+      ei.push(key);
+    }
+  }
+
+  this.UpdateGhostPointsAndEdges(this.underBrushIds, ei);
+}
+
+operator FESRelaxBrushOp<<<index>>>(in Size arrayIds[], io Vec3 points[Size], io Vec3 normals[Size], in PolygonMesh mesh,
+  in Scalar coefficients[], in SizeArray inMap[Size], in Scalar relaxStrength)
+{
+  Size pointIndex = arrayIds[index];
+  Scalar c = coefficients[index] * relaxStrength;
+  Size a[] = inMap[pointIndex].array;
+  if(a.size() > 0)
+  {
+    Vec3 p;
+    for(Size i = 0; i < a.size(); i++)
+    {
+      p = p + points[a[i]];
+    }
+    Vec3 newPosition = c*(p / a.size()) + (1 - c) * points[pointIndex];
+    GeometryLocation location = mesh.getClosest(newPosition, Vec3(1, 1, 1), SCALAR_INFINITE);
+    points[pointIndex] = mesh.getPositionAtLocation(location);
+    normals[pointIndex] = mesh.getNormalAtLocation(location);
+  }
+  
+}
+
+function RetopoManipulator.RelaxBrushProcess!(io MouseEvent mouseEvent, Vec2 mPosition)
+{
+  this.FindPointsUnderBrush(mouseEvent);
+  if(this.underBrushIds.size() > 0)
+  {
+    //for each point collect incident points
+    //at first create dictionary with empty incidents
+    SizeArray inMap[Size];
+    for(pIndex, point in this.points)
+    {
+      SizeArray sArray;
+      sArray.array.resize(0);
+      inMap[pIndex] = sArray;
+    }
+    //Walk throw edges
+    Size ei[];
+    ei.resize(0);
+    for(eIndex, edge in this.edges)
+    {
+      inMap[edge.firstPointIndex].array.push(edge.secondPointIndex);
+      inMap[edge.secondPointIndex].array.push(edge.firstPointIndex);
+      if(FESIsArrayContainsValue(this.underBrushIds, edge.firstPointIndex) || FESIsArrayContainsValue(this.underBrushIds, edge.secondPointIndex))
+      {
+        ei.push(eIndex);
+      }
+    }
+    FESRelaxBrushOp<<<this.underBrushIds.size()>>>(this.underBrushIds, this.points, this.normals, this.refMesh, this.underBrushCoefficients, inMap, this.relaxStrength);
+
+    this.UpdateGhostPointsAndEdges(this.underBrushIds, ei);
+  }
+}
+
+function RetopoManipulator.SnapPoint!(Size pIndex, Size tIndex)
+{//should snap pIndex to tIndex
+
+  Size borders[];
+  borders.resize(0);
+  for(k, v in this.edges)
+  {
+    if(v.firstPointIndex == pIndex)
+    {
+      borders.push(v.secondPointIndex);
+    }
+    else if(v.secondPointIndex == pIndex)
+    {
+      borders.push(v.firstPointIndex);
+    }
+  }
+  this.DeletePoint(pIndex, false);
+  for(Size i = 0; i < borders.size(); i++)
+  {
+    this.prevPointIndex = borders[i];
+    this.CompleteEdgeByPoint(tIndex, false);
+  }
+
+  this.RebuildRetopoMesh();
+
+}
+
+function RetopoManipulator.DeletePoint!(Size pIndex, Boolean shouldRebuildMesh)
+{
+  for(k, v in this.edges)
+  {
+    if(v.firstPointIndex == pIndex || v.secondPointIndex == pIndex)
+    {
+      this.edges.delete(k);
+    }
+  }
+  if(this.points.has(pIndex))
+  {
+    this.points.delete(pIndex);
+    this.normals.delete(pIndex);
+  }
+
+  this.FullGhostUpdate(shouldRebuildMesh);
+  
+}
+
+function RetopoManipulator.DeleteEdge!(Size eIndex, Boolean shouldUpdate)
+{
+  if(this.edges.has(eIndex))
+  {
+    this.edges.delete(eIndex);
+  }
+  if(shouldUpdate)
+  {
+    this.FullGhostUpdate(true);
+  }
+  
+}
+
+function RetopoManipulator.AddEdgeBridge!(Boolean shouldUpdate)
+{
+  if(this.isVirtualEdge)
+  {
+    Size newEdgeIndex = this.GetNewEdgeIndex();
+    this.edges[newEdgeIndex] = REdge(this.virtualEdge.firstPointIndex, this.virtualEdge.secondPointIndex);
+    this.isVirtualEdge = false;
+    Size p[];
+    p.resize(0);
+    Size e[];
+    e.push(newEdgeIndex);
+    this.UpdateGhost(p, e);
+
+    if(shouldUpdate)
+    {
+      this.RebuildRetopoMesh();
+    }
+    
+  }
+}
+
+function RetopoManipulator.FindPointsUnderBrush!(io MouseEvent mouseEvent)
+{//store id's in this.underBrushIds and their positions in this.startPointsPositions
+  this.underBrushIds.resize(0);
+  this.underBrushCoefficients.resize(0);
+  this.startPointsPositions.clear();
+  Vec2 viewportDim = mouseEvent.getViewport().getDimensions();
+  Scalar viewportAspectRatio = viewportDim.x / viewportDim.y;
+
+  Vec2 mPosition = mouseEvent.pos;
+  Vec3BoolPair intersection = this.GetPositionOnReference(mouseEvent, mPosition);
+  Vec3 click3DPosition = intersection.vector;
+  this.startClickPosition = click3DPosition;
+
+  Ray ray = mouseEvent.getViewport().calcRayFromScreenPos(mPosition);
+  Vec3 dir = ray.direction;
+  Scalar distToClick = click3DPosition.distanceTo(ray.start);
+  Scalar surfRadius = 0.0;
+  Scalar innerRadius = 0.0;
+  if(this.mode == 3)
+  {
+    surfRadius = this.moveBrushRadius * distToClick * viewportAspectRatio / 2.0;
+    innerRadius = surfRadius * this.moveBrushInnerCoefficient;
+  }
+  else if(this.mode == 4)
+  {
+    surfRadius = this.relaxBrushRadius * distToClick * viewportAspectRatio / 2.0;
+    innerRadius = surfRadius * this.relaxBrushInnerCoefficient;
+  }
+  
+  
+  for(key, value in this.points)
+  {
+    if(this.normals[key].dot(dir) < 0)
+    {
+      Scalar a = value.distanceTo(click3DPosition);
+      if(a < surfRadius)
+      {
+        this.underBrushIds.push(key);
+        this.startPointsPositions[key] = value;
+
+        if(a < innerRadius)
+        {
+          this.underBrushCoefficients.push(1.0);
+        }
+        else
+        {
+          this.underBrushCoefficients.push((surfRadius - a) / (surfRadius - innerRadius));
+        }
+      }
+    }
+  }
+}
+
+function Vec3[2] RetopoManipulator.GetEdgeEndPositions!(io  MouseEvent mouseEvent, Vec3 startTranslatePos, Vec3 endTranslatePos, Vec3 startEdgeDirection, Scalar edgeLength)
+{
+  
+
+  Vec3 translate = endTranslatePos - startTranslatePos;
+  translate.normalize();
+  Vec3 normal = translate.cross(startEdgeDirection);
+  normal.normalize();
+  Vec3 newEdgeDirection = translate.cross(normal);
+  newEdgeDirection.normalize();
+
+  Vec3 newPos1Temp = endTranslatePos + (0.5 * edgeLength * newEdgeDirection);
+  Vec3 newPos2Temp = endTranslatePos - (0.5 * edgeLength * newEdgeDirection);
+
+  Vec3 toReturn[2];
+  toReturn[0] = newPos1Temp;
+  toReturn[1] = newPos2Temp;
+
+  return toReturn;
+}
+
+function RetopoManipulator.CreateAndMoveEdgeProcess!(io MouseEvent mouseEvent)
+{
+  if(this.isClickOnEdge)
+  {
+    if(this.isShouldCreateEdgeWithMove && this.closestEdgeIndex != -1)
+    {
+      this.isShouldCreateEdgeWithMove = false;
+      Size p1Index = this.edges[this.closestEdgeIndex].firstPointIndex;
+      Size p2Index = this.edges[this.closestEdgeIndex].secondPointIndex;
+
+      Scalar edgeLength = this.points[p1Index].distanceTo(this.points[p2Index]);
+      this.oldEdgeLength = edgeLength;
+      Vec3 oldCenterPos = (this.points[p1Index] + this.points[p2Index]) / 2.0;
+      this.oldEdgeCenter = oldCenterPos;
+      Vec3 oldEdgeDirection = this.points[p2Index] - this.points[p1Index];
+      this.oldEdgeDirection = oldEdgeDirection;
+
+      Vec3BoolPair intersection = this.GetPositionOnReference(mouseEvent, mouseEvent.pos);
+      Vec3 clickPosition = intersection.vector;
+
+      Vec3 pointsPos[2] = this.GetEdgeEndPositions(mouseEvent, oldCenterPos, clickPosition, oldEdgeDirection, edgeLength);
+
+      
+
+      Vec3 newPos01 = this.GetClosestPosition(pointsPos[0]);
+      Vec3 newPos02 = this.GetClosestPosition(pointsPos[1]);
+
+      this.prevPointIndex = p1Index;
+
+      Size newIndex01 = this.AddPoint(newPos01, this.GetClosestNormal(newPos01), false);
+      Size newIndex02 = this.AddPoint(newPos02, this.GetClosestNormal(newPos02), false);
+
+      this.createdEdgeIndex = FESGetEdgeIndex(newIndex01, newIndex02, this.edges);
+
+      this.CompleteEdgeByPoint(p2Index, false);
+
+      this.prevPointIndex = -1;
+
+      //this.closestEdgeIndex = -1;
+    }
+    else if(this.createdEdgeIndex != -1)
+    {
+      Vec3BoolPair intersection = this.GetPositionOnReference(mouseEvent, mouseEvent.pos);
+      Vec3 clickPosition = intersection.vector;
+      Vec3 pointsPos[2] = this.GetEdgeEndPositions(mouseEvent, this.oldEdgeCenter, clickPosition, this.oldEdgeDirection, this.oldEdgeLength);
+
+      Vec3 newPos01 = this.GetClosestPosition(pointsPos[0]);
+      Vec3 newPos02 = this.GetClosestPosition(pointsPos[1]);
+
+      this.SetPointPosition(this.edges[this.createdEdgeIndex].firstPointIndex, newPos01);
+      this.SetPointPosition(this.edges[this.createdEdgeIndex].secondPointIndex, newPos02);
+    }
+  }
+}
+
+function RetopoManipulator.ResetData!()
+{
+  this.movingPointIndex = -1;
+  this.isClickOnEdge = false;
+  this.isClickBrush = false;
+  this.isStartChangeBrushSize = false;
+  this.isShouldCreateEdgeWithMove = false;
+  this.closestEdgeIndex = -1;
+  this.closestPointIndex = -1;
+  this.isMouseClick = false;
+}
+
+function RetopoManipulator.onEvent!(io Event event)
+{
+  MouseEvent mouseEvent = event;
+  if(event.eventType() == Event_MouseButtonPress)
+  {
+    if(mouseEvent.buttons & MouseButton_LeftButton)
+    {
+      //Click left
+      Size mId = this.UpdateButtons(event, mouseEvent.pos);
+      mouseEvent.getHost().requestRedraw();
+      this.ActivateMode(mId);
+      if(mId == -1)
+      {
+        if(this.mode == 1)
+        {//creation process
+          if(this.closestEdgeIndex != -1)
+          {
+            this.SplitEdge(mouseEvent, this.closestEdgeIndex);
+          }
+          else
+          {
+            this.FindIntersectionPoint(mouseEvent, true, true);
+          }
+          this.isMouseClick = true;
+        }
+        else if(this.mode == 0)
+        {
+          //moov process
+          this.FindClosestPointOnScreen(mouseEvent, false);
+          this.movingPointIndex = this.closestPointIndex;
+        }
+        else if(this.mode == 2)
+        {//create edges process
+          if(this.isVirtualEdge)
+          {//should create the edge
+            this.AddEdgeBridge(true);
+            this.isClickOnEdge = false;
+          }
+          else if(this.closestEdgeIndex != -1)
+          {
+            this.isClickOnEdge = true;
+            this.isShouldCreateEdgeWithMove = true;
+          }
+          this.isMouseClick = true;
+        }
+        else if(this.mode == 3)
+        {//brush move process. We should find indexesof points for translation
+          if((mouseEvent.modifiers & ModiferKey_Ctrl) != 0)
+          {//Click in mode 3 with control
+            this.startChangeBrushSize = this.moveBrushRadius;
+            this.startChangeBrushInnerCoefficient = this.moveBrushInnerCoefficient;
+            this.startDragBrushSizePosition = mouseEvent.pos;
+            this.isStartChangeBrushSize = true;
+            this.isClickBrush = false;
+          }
+          else
+          {//Click in mode 3. Collect points under brush and save position of the mouse
+            this.FindPointsUnderBrush(mouseEvent);
+            this.startMoveBrushMousePosition = mouseEvent.pos;
+            this.isClickBrush = true;
+          }
+        }
+        else if(this.mode == 4)
+        {//relax brush mode
+          if((mouseEvent.modifiers & ModiferKey_Ctrl) != 0)
+          {//Click in mode 4 with control
+            this.startChangeBrushSize = this.relaxBrushRadius;
+            this.startChangeBrushInnerCoefficient = this.relaxBrushInnerCoefficient;
+            this.startDragBrushSizePosition = mouseEvent.pos;
+            this.isStartChangeBrushSize = true;
+            this.isClickBrush = false;
+          }
+          else
+          {
+            this.isClickBrush = true;
+          }
+        }
+      }
+      //this.UpdateHost(mouseEvent);
+      event.accept();
+    }
+    else if(mouseEvent.buttons & MouseButton_RightButton)
+    {
+      //Click right
+      this.BreakeEdgeChain();
+      if(this.mode == 1 && this.closestPointIndex != -1)
+      {
+        this.DeletePoint(this.closestPointIndex, true);
+      }
+      else if(this.mode == 2 && this.closestEdgeIndex != -1)
+      {
+        this.DeleteEdge(this.closestEdgeIndex, true);
+      }
+      //this.UpdateHost(event);
+      event.accept();
+    }
+    
+  }
+  else if(event.eventType() == Event_MouseMove)
+  { 
+    if((this.mode == 3 || this.mode == 4) && (mouseEvent.modifiers & ModiferKey_Ctrl) != 0)
+    {
+      this.ChangeBrushSize(mouseEvent);
+    }
+    else if((this.mode == 3 || this.mode == 4) && this.isClickBrush)
+    {
+      if(this.mode == 3 && this.underBrushIds.size() > 0)
+      {//Move brush process
+        this.MoveBrushProcess(mouseEvent, mouseEvent.pos);
+      }
+      else if(this.mode == 4)
+      {//Relax brush process
+        this.RelaxBrushProcess(mouseEvent, mouseEvent.pos);
+      }
+      
+    }
+    
+    if(this.mode == 0 || (this.mode == 1 && !this.isMouseClick))
+    {
+      //find closest point to target of the mouse
+      this.FindClosestPointOnScreen(mouseEvent, true);
+      //if no such point, try to find closest edge
+      if(this.closestPointIndex == -1 && this.mode == 1)
+      {
+        this.FindClosestEdgeOnScreen(mouseEvent);
+      }
+    }
+    if(this.mode == 2 && !this.isMouseClick)
+    {//find closes edge throw all possible points pairs
+        this.FindClosestEdgeOnScreen(mouseEvent);
+        if(this.closestEdgeIndex == -1)
+        {//no closest real edge, find virtual one
+          this.FindVirtualEdgeOnScreen(mouseEvent);
+        }
+        else
+        {
+          this.isVirtualEdge = false;
+        }
+    }
+
+    if(mouseEvent.buttons & MouseButton_LeftButton)
+    {
+      if(this.points.has(this.movingPointIndex) && this.mode == 0)
+      {
+        this.MovingProcess(mouseEvent, mouseEvent.pos);
+        //this.UpdateHost(event);
+      }
+      else if(this.mode == 2 && this.closestEdgeIndex != -1)
+      {
+        this.CreateAndMoveEdgeProcess(mouseEvent);
+      }
+    }
+    event.accept();
+
+    this.UpdateButtons(event, mouseEvent.pos);
+    mouseEvent.getHost().requestRedraw();
+    this.SetGhostVisible();
+
+  }
+  else if(event.eventType() == Event_MouseButtonRelease)
+  {//release mouse button
+    if(mouseEvent.buttons & MouseButton_LeftButton)
+    {//release left mouse button
+      if(this.mode == 0 && this.movingPointIndex != -1 && this.closestPointIndex != -1 && this.movingPointIndex != this.closestPointIndex)
+      {
+        this.SnapPoint(this.movingPointIndex, this.closestPointIndex);
+        //this.UpdateHost(event);
+      }
+      else if(this.mode == 2 && this.closestEdgeIndex != -1 && !this.isShouldCreateEdgeWithMove && this.isClickOnEdge)
+      {
+        this.RebuildRetopoMesh();
+      }
+    }
+    event.accept();
+    this.UpdateHost(event);
+    this.ResetData();
+    
+  }
+  
+}
+
+function RetopoManipulator.SetGhostVisible!()
+{
+  this.SetGhostUnVisible();
+  
+  for(i, v in this.ghostPointsInstances)
+  {
+    if(i == this.closestPointIndex || i == this.movingPointIndex)
+    {
+      if(!v.hasMaterial(this.ghostActivePointMaterial))
+      {
+        v.addMaterial(this.ghostActivePointMaterial);
+      }
+    }
+    else
+    {
+      if(!v.hasMaterial(this.ghostPointMaterial))
+      {
+        v.addMaterial(this.ghostPointMaterial);
+      }
+    }
+  }
+
+  for(i, v in this.ghostEdgesInstances)
+  {
+    if(i == this.closestEdgeIndex)
+    {
+      if(!v.hasMaterial(this.ghostActiveEdgeMaterial))
+      {
+        v.addMaterial(this.ghostActiveEdgeMaterial);
+      }
+    }
+    else
+    {
+      if(!v.hasMaterial(this.ghostEdgeMaterial))
+      {
+        v.addMaterial(this.ghostEdgeMaterial);
+      }
+    }
+  }
+
+  if(this.isVirtualEdge)
+  {
+    if(!this.ghostVirtualEdgesInstance.hasMaterial(this.ghostVirtualEdgeMaterial))
+    {
+      this.ghostVirtualEdgesInstance.addMaterial(this.ghostVirtualEdgeMaterial);
+    }
+  }
+
+  if(!this.retopoInstance.hasMaterial(this.retopoMaterial) && this.isShowInlineRetopoMesh)
+  {
+    this.retopoInstance.addMaterial(this.retopoMaterial);
+  }
+}
+
+function RetopoManipulator.SetGhostUnVisible!()
+{
+  for(i, v in this.ghostPointsInstances)
+  {
+    if(v.hasMaterial(this.ghostPointMaterial))
+    {
+      v.removeMaterial(this.ghostPointMaterial);
+    }
+    if(v.hasMaterial(this.ghostActivePointMaterial))
+    {
+      v.removeMaterial(this.ghostActivePointMaterial);
+    }
+    
+  }
+  
+  for(i, v in this.ghostEdgesInstances)
+  {
+    if(v.hasMaterial(this.ghostEdgeMaterial))
+    {
+      v.removeMaterial(this.ghostEdgeMaterial);
+    }
+    if(v.hasMaterial(this.ghostActiveEdgeMaterial))
+    {
+      v.removeMaterial(this.ghostActiveEdgeMaterial);
+    }
+  }
+
+  if(this.ghostVirtualEdgesInstance.hasMaterial(this.ghostVirtualEdgeMaterial))
+  {
+    this.ghostVirtualEdgesInstance.removeMaterial(this.ghostVirtualEdgeMaterial);
+  }
+
+  if(this.retopoInstance.hasMaterial(this.retopoMaterial))
+  {
+    this.retopoInstance.removeMaterial(this.retopoMaterial);
+  }
+  
+}
+
+function RetopoManipulator.ShowButtons!()
+{
+  this.HideButtons();
+
+  //show brush if the mode is correct
+  if(this.mode == 3 || this.mode == 4)
+  {
+    if(!this.brush.hasMaterial(this.brushMaterial))
+    {
+      this.brush.addMaterial(this.brushMaterial);
+    }
+    if(!this.brushAddon.hasMaterial(this.brushAddonMaterial))
+    {
+      this.brushAddon.addMaterial(this.brushAddonMaterial);
+    }
+  }
+  if(this.isB01H)
+  {
+    if(!this.button01Instance.hasMaterial(this.button01HM))
+    {
+      this.button01Instance.addMaterial(this.button01HM);
+    }
+  }
+  else if(this.isB01A)
+  {
+    if(!this.button01Instance.hasMaterial(this.button01AM))
+    {
+      this.button01Instance.addMaterial(this.button01AM);
+    }
+  }
+  else
+  {
+    if(!this.button01Instance.hasMaterial(this.button01PM))
+    {
+      this.button01Instance.addMaterial(this.button01PM);
+    }
+  }
+
+  if(this.isB02H)
+  {
+    if(!this.button02Instance.hasMaterial(this.button02HM))
+    {
+      this.button02Instance.addMaterial(this.button02HM);
+    }
+  }
+  else if(this.isB02A)
+  {
+    if(!this.button02Instance.hasMaterial(this.button02AM))
+    {
+      this.button02Instance.addMaterial(this.button02AM);
+    }
+  }
+  else
+  {
+    if(!this.button02Instance.hasMaterial(this.button02PM))
+    {
+      this.button02Instance.addMaterial(this.button02PM);
+    }
+  }
+
+  if(this.isB03H)
+  {
+    if(!this.button03Instance.hasMaterial(this.button03HM))
+    {
+      this.button03Instance.addMaterial(this.button03HM);
+    }
+  }
+  else if(this.isB03A)
+  {
+    if(!this.button03Instance.hasMaterial(this.button03AM))
+    {
+      this.button03Instance.addMaterial(this.button03AM);
+    }
+  }
+  else
+  {
+    if(!this.button03Instance.hasMaterial(this.button03PM))
+    {
+      this.button03Instance.addMaterial(this.button03PM);
+    }
+  }
+
+  if(this.isB04H)
+  {
+    if(!this.button04Instance.hasMaterial(this.button04HM))
+    {
+      this.button04Instance.addMaterial(this.button04HM);
+    }
+  }
+  else if(this.isB04A)
+  {
+    if(!this.button04Instance.hasMaterial(this.button04AM))
+    {
+      this.button04Instance.addMaterial(this.button04AM);
+    }
+  }
+  else
+  {
+    if(!this.button04Instance.hasMaterial(this.button04PM))
+    {
+      this.button04Instance.addMaterial(this.button04PM);
+    }
+  }
+
+  if(this.isB05H)
+  {
+    if(!this.button05Instance.hasMaterial(this.button05HM))
+    {
+      this.button05Instance.addMaterial(this.button05HM);
+    }
+  }
+  else if(this.isB05A)
+  {
+    if(!this.button05Instance.hasMaterial(this.button05AM))
+    {
+      this.button05Instance.addMaterial(this.button05AM);
+    }
+  }
+  else
+  {
+    if(!this.button05Instance.hasMaterial(this.button05PM))
+    {
+      this.button05Instance.addMaterial(this.button05PM);
+    }
+  }
+
+  
+}
+
+function RetopoManipulator.HideButtons!()
+{
+  if(this.button01Instance.hasMaterial(this.button01PM))
+  {
+    this.button01Instance.removeMaterial(this.button01PM);
+  }
+  if(this.button01Instance.hasMaterial(this.button01AM))
+  {
+    this.button01Instance.removeMaterial(this.button01AM);
+  }
+  if(this.button01Instance.hasMaterial(this.button01HM))
+  {
+    this.button01Instance.removeMaterial(this.button01HM);
+  }
+
+  if(this.button02Instance.hasMaterial(this.button02PM))
+  {
+    this.button02Instance.removeMaterial(this.button02PM);
+  }
+  if(this.button02Instance.hasMaterial(this.button02AM))
+  {
+    this.button02Instance.removeMaterial(this.button02AM);
+  }
+  if(this.button02Instance.hasMaterial(this.button02HM))
+  {
+    this.button02Instance.removeMaterial(this.button02HM);
+  }
+
+  if(this.button03Instance.hasMaterial(this.button03PM))
+  {
+    this.button03Instance.removeMaterial(this.button03PM);
+  }
+  if(this.button03Instance.hasMaterial(this.button03AM))
+  {
+    this.button03Instance.removeMaterial(this.button03AM);
+  }
+  if(this.button03Instance.hasMaterial(this.button03HM))
+  {
+    this.button03Instance.removeMaterial(this.button03HM);
+  }
+
+  if(this.button04Instance.hasMaterial(this.button04PM))
+  {
+    this.button04Instance.removeMaterial(this.button04PM);
+  }
+  if(this.button04Instance.hasMaterial(this.button04AM))
+  {
+    this.button04Instance.removeMaterial(this.button04AM);
+  }
+  if(this.button04Instance.hasMaterial(this.button04HM))
+  {
+    this.button04Instance.removeMaterial(this.button04HM);
+  }
+
+  if(this.button05Instance.hasMaterial(this.button05PM))
+  {
+    this.button05Instance.removeMaterial(this.button05PM);
+  }
+  if(this.button05Instance.hasMaterial(this.button05AM))
+  {
+    this.button05Instance.removeMaterial(this.button05AM);
+  }
+  if(this.button05Instance.hasMaterial(this.button05HM))
+  {
+    this.button05Instance.removeMaterial(this.button05HM);
+  }
+
+  //Hide brush
+  if(this.brush.hasMaterial(this.brushMaterial))
+  {
+    this.brush.removeMaterial(this.brushMaterial);
+  }
+  if(this.brushAddon.hasMaterial(this.brushAddonMaterial))
+  {
+    this.brushAddon.removeMaterial(this.brushAddonMaterial);
+  }
+}
+
+function RetopoManipulator.onEnable!()
+{
+  this.isEnable = true;
+  //this.ResetPrevPoint();
+  this.SetGhostVisible();
+  this.ShowButtons();
+}
+
+function RetopoManipulator.onDisable!()
+{
+  this.isEnable = false;
+  //this.ResetPrevPoint();
+  this.closestPointIndex = -1;
+  this.closestEdgeIndex = -1;
+  //this.FullGhostUpdate();
+  if(this.isClearWhenNonactive)
+  {
+    this.SetGhostUnVisible();
+    this.HideButtons();
+  }
+  
+}

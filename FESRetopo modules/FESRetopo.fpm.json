@@ -1,0 +1,12 @@
+{
+  "code": [
+	"REdge.kl",
+    "RetopoManipulator.kl",
+	"FESRetopoHelper.kl",
+	"FESOGLSurfaceShader.kl",
+	"FESOGLSurfaceShaderBack.kl",
+	"FESOGLHUDShader.kl",
+	"FESOGLPointsEdgesFlat.kl",
+	"FESOGLEdgesFlat.kl"
+  ]
+}

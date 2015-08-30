@@ -1,0 +1,12 @@
+object REdge
+{
+  //Size index;
+  Size firstPointIndex;
+  Size secondPointIndex;
+};
+
+function REdge(Size i1, Size i2)
+{
+  this.firstPointIndex = i1;
+  this.secondPointIndex = i2;
+}

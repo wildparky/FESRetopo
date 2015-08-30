@@ -1,0 +1,115 @@
+/*
+ *  Copyright 2010-2015 Fabric Software Inc. All rights reserved.
+ */
+
+require Math;
+
+/*
+Based on OGLFlatShader
+*/
+object FESOGLEdgesFlat: OGLInlineShader {};
+
+/// default constructor
+function FESOGLEdgesFlat() {
+  // Avoid calling the init method if this default constructor is being invoked 
+  // during the construction of a derived object.
+  if(this.type() == FESOGLEdgesFlat)
+    this.init(String(this.type()));
+}
+
+/// default constructor taking a name
+function FESOGLEdgesFlat(String name) {
+  this.init(name);
+}
+
+/// initialize the shader using a name.
+/// \internal
+function FESOGLEdgesFlat.init!(String name) {
+  this.name = name;
+  this.setVertexCode("
+      #version 120 // We require OpenGL 2.1 for InlineDrawing, which supports GLSL 1.2
+
+      uniform mat4 u_viewMatrix;
+      uniform mat4 u_projection;
+      uniform mat4 u_modelMatrix;
+      uniform mat3 u_normalMatrix;
+      
+      attribute vec4 positions;
+      attribute vec3 avNormals;
+
+      varying vec3 v_avNormal;
+      varying vec4 v_position;
+      varying vec3 v_eyeVec;
+
+      void main(){
+        v_avNormal = u_normalMatrix * avNormals;
+        v_position = u_modelMatrix * positions;
+        vec4 v_positionInv = (u_viewMatrix * vec4(v_position.xyz, 1.0));
+        gl_Position = u_projection * (u_viewMatrix * v_position);
+
+        v_eyeVec = -v_positionInv.xyz;
+        gl_PointSize = 0.1;
+        //gl_LineWidth = 0.1;
+      }
+    ");
+
+  this.setFragmentCode("
+      #version 120 // We require OpenGL 2.1 for InlineDrawing, which supports GLSL 1.2
+      
+      uniform vec4 u_color;
+      varying vec3 v_avNormal;
+      varying vec4 v_position;
+      varying vec3 v_eyeVec;
+      
+      void main()
+      {
+        vec4 final_color = u_color;
+        float alpha;
+
+        float c = 0.1;
+
+        float d = dot(v_avNormal, v_eyeVec);
+        if(d - 2*c < -1 * c)
+        {
+          alpha = 0.0;
+        }
+        else if(d - 2*c > c)
+        {
+          alpha = 1.0;
+        }
+        else
+        {
+          alpha = (d - 2*c) / (2.0 * c) + (1.0 / 2.0);
+        }
+        final_color.a = alpha;
+        gl_FragColor = final_color;
+      }
+    ");  
+  this.defineUniform(InlineUniform("u_viewMatrix", Mat44()));
+  this.defineUniform(InlineUniform("u_projection", Mat44()));
+  this.defineUniform(InlineUniform("u_modelMatrix", Mat44()));
+  this.defineUniform(InlineUniform("u_normalMatrix", Mat33()));
+  this.defineUniform(InlineUniform('u_color', Color(1.0, 0.0, 0.0, 1.0)));
+  this.defineAttribute('positions', "Vec3");
+  this.defineAttribute('avNormals', "Vec3");
+}
+
+function Boolean FESOGLEdgesFlat.draw!(io DrawContext context) 
+{
+  glDepthFunc(GL_LEQUAL);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  glEnable(GL_LINE_SMOOTH);
+
+
+  //glDisable(GL_DEPTH_TEST);
+  glDepthRange(0.0, 0.59982);
+  Boolean result = this.parent.draw(context);
+  //glEnable(GL_DEPTH_TEST);
+  
+  
+  
+
+  return result;
+}

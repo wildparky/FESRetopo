@@ -1,0 +1,88 @@
+/*
+ *  Copyright 2010-2015 Fabric Software Inc. All rights reserved.
+ */
+
+require Math;
+
+/*
+Based on OGLHUDShader
+*/
+object FESOGLHUDShader: OGLInlineShader {};
+
+/// default constructor
+function FESOGLHUDShader() {
+  // Avoid calling the init method if this default constructor is being invoked 
+  // during the construction of a derived object.
+  if(this.type() == FESOGLHUDShader)
+    this.init(String(this.type()));
+}
+
+/// default constructor taking a name
+function FESOGLHUDShader(String name) {
+  this.init(name);
+}
+
+/// initialize the shader using a name.
+function FESOGLHUDShader.init!(String name) {
+  this.name = name;
+  this.setVertexCode("
+      #version 120 // We require OpenGL 2.1 for InlineDrawing, which supports GLSL 1.2
+
+      uniform mat4 u_modelMatrix;
+      
+      attribute vec4 positions;
+      attribute vec2 uvs0;
+
+      varying vec2 v_uv0;
+
+      void main(){
+        gl_Position = u_modelMatrix * positions;
+        v_uv0 = uvs0;
+      }
+    ");
+  this.setFragmentCode("
+      #version 120 // We require OpenGL 2.1 for InlineDrawing, which supports GLSL 1.2
+      
+      uniform sampler2D u_texture;
+      uniform int u_mirrorU;
+      uniform int u_mirrorV;
+      uniform int u_discardAlpha;
+
+      varying vec2 v_uv0;
+      uniform vec4 u_color;
+      
+      void main(){
+        vec2 uv = v_uv0;
+        if(u_mirrorU != 0) uv.x = 1.0 - uv.x;
+        if(u_mirrorV != 0) uv.y = 1.0 - uv.y;
+
+        vec4 texture_color = texture2D( u_texture, uv );
+        if(u_discardAlpha != 0)
+        {
+          if(texture_color.a < 0.0001)
+            discard;
+        }
+        gl_FragColor = texture_color + u_color;
+
+      }
+    ");  
+  this.defineUniform(InlineUniform("u_modelMatrix", Mat44()));
+  this.defineUniform(InlineUniform('u_color', Color(1.0, 0.0, 0.0)));
+  this.defineUniform(InlineUniform('u_texture', null));
+  this.defineUniform(InlineUniform('u_mirrorU', 0));
+  this.defineUniform(InlineUniform('u_mirrorV', 0));
+  this.defineUniform(InlineUniform('u_discardAlpha', 0));
+  this.defineAttribute('uvs0', "Vec2");
+
+  this.defineAttribute('positions', "Vec3");
+}
+
+function Boolean FESOGLHUDShader.draw!(io DrawContext context) {
+
+  glDepthFunc(GL_LEQUAL);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  
+
+  return this.parent.draw(context);
+}

@@ -1,5 +1,5 @@
 {
-  "version" : "1015002",
+  "version" : "1015003",
   "info" : {
     "hostAppName" : "Softimage",
     "hostAppVersion" : "13.0.114.0"
@@ -10,7 +10,7 @@
         {
           "operator" : {
             "name" : "retopoOp",
-            "kl" : "require Math;\r\nrequire Geometry;\r\nrequire FESRetopo;\r\n\r\n\n\noperator retopoOp(\n  io PolygonMesh drawingMesh, \n  in String filePath, \n  in Boolean forceUpdateMesh, \n  io DrawingHandle handle, \n  in Boolean isCleaning, \n  in Boolean isClearManipulator, \n  io PolygonMesh mesh0, \n  in String pathToIcons, \n  in Integer rUpdater,\r\n  EvalContext context,\r\n  in Integer spatialQueryType\n) \r\n{\n  FESDrawRef(drawingMesh, filePath, handle, isCleaning, forceUpdateMesh);\r\n  \r\n  if(drawingMesh.pointCount() > 0)\r\n  {\r\n    EventDispatcher dispatcher = EventDispatcher_GetInstance();\r\n    if(dispatcher.hasManipulator(\"retopoManipulator\"))\r\n    {\r\n      RetopoManipulator m = dispatcher.getManipulator(\"retopoManipulator\");\r\n      m.SetClearWhenNonActive(isClearManipulator);\r\n      Vec3 points[Size] = m.GetPoints();\r\n      \r\n      REdge edges[Size] = m.GetEdges();\r\n      Vec3 normals[Size] = m.GetNormals();\r\n      \r\n      mesh0 = FESBuildMesh(points, edges, normals);\r\n    }\r\n    else\r\n    {\r\n      RetopoManipulator m = RetopoManipulator(context, pathToIcons, mesh0);\r\n      \r\n      m.AddInlineMesh(drawingMesh, spatialQueryType);\r\n      m.SetClearWhenNonActive(isClearManipulator);\r\n      dispatcher.registerManipulator('retopoManipulator', m);\r\n      dispatcher.pushManipulator('retopoManipulator');\r\n    }\r\n  }\r\n  \n}\n"
+            "kl" : "require Math;\nrequire Geometry;\nrequire FESRetopo;\n\n\noperator retopoOp(\n  io PolygonMesh drawingMesh, \n  in String filePath, \n  in Boolean forceUpdateMesh, \n  io DrawingHandle handle, \n  in Boolean isCleaning, \n  in Boolean isClearManipulator, \n  io PolygonMesh mesh0, \n  in String pathToIcons, \n  in Integer rUpdater,\n  EvalContext context,\n  in Integer spatialQueryType,\n  in Scalar relaxStrength,\n  in Boolean isExportOBJ,\r\n  in Boolean isShowInlineRetopoMesh\n) \n{\n  FESDrawRef(drawingMesh, filePath, handle, isCleaning, forceUpdateMesh);\n\n  \n  if(drawingMesh.pointCount() > 0)\n  {\n    EventDispatcher dispatcher = EventDispatcher_GetInstance();\n\n    if(dispatcher.hasManipulator(\"retopoManipulator\"))\n    {\n      RetopoManipulator m = dispatcher.getManipulator(\"retopoManipulator\");\n      \n      m.SetClearWhenNonActive(isClearManipulator);\n      m.SetManipulatorProperties(false, 0, relaxStrength, isShowInlineRetopoMesh);\n      Vec3 points[Size] = m.GetPoints();\n      \n      REdge edges[Size] = m.GetEdges();\n      Vec3 normals[Size] = m.GetNormals();\n      \n      mesh0 = m.GetRetopoMesh();\n\n      if(isExportOBJ)\n      {\n        FilePath fp(filePath);\n        if(fp.exists())\n        {\n          String fn = fp.fileName().string();\n          FESWriteOBJFile(fp.removeFileName().string(), FESGetFileName(fn) + \"_Retopo\", mesh0);\n        }\n      }\n    }\n    else\n    {\n      RetopoManipulator m = RetopoManipulator(context, pathToIcons, mesh0, handle);\n      \n      m.AddInlineMesh(drawingMesh, spatialQueryType);\n      m.SetClearWhenNonActive(isClearManipulator);\n      m.SetManipulatorProperties(false, 0, relaxStrength, isShowInlineRetopoMesh);\n      dispatcher.registerManipulator('retopoManipulator', m);\n      dispatcher.pushManipulator('retopoManipulator');\n    }\n  }\n  \n}\n"
             }
           }
         ]
@@ -100,6 +100,32 @@
       "default" : "false"
       },
     {
+      "name" : "isExportOBJ",
+      "type" : "Boolean",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Boolean",
+        "extension" : "",
+        "portName" : "isExportOBJ",
+        "reference" : "cube01_Retopo.polymsh.SpliceOp"
+        },
+      "default" : "false"
+      },
+    {
+      "name" : "isShowInlineRetopoMesh",
+      "type" : "Boolean",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Boolean",
+        "extension" : "",
+        "portName" : "isShowInlineRetopoMesh",
+        "reference" : "sphere02_Retopo.polymsh.SpliceOp"
+        },
+      "default" : "true"
+      },
+    {
       "name" : "mesh0",
       "type" : "PolygonMesh",
       "mode" : "io",
@@ -130,7 +156,20 @@
         "portName" : "rUpdater",
         "reference" : "sphere.polymsh.SpliceOp"
         },
-      "default" : "75"
+      "default" : "1"
+      },
+    {
+      "name" : "relaxStrength",
+      "type" : "Scalar",
+      "options" : {
+        "SoftimagePortType" : 1,
+        "action" : "addParameter",
+        "dataType" : "Scalar",
+        "extension" : "",
+        "portName" : "relaxStrength",
+        "reference" : "cube01_Retopo.polymsh.SpliceOp"
+        },
+      "default" : "1"
       },
     {
       "name" : "spatialQueryType",

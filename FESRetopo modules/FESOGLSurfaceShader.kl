@@ -1,0 +1,165 @@
+/*
+ *  Copyright 2010-2015 Fabric Software Inc. All rights reserved.
+ */
+
+require Math;
+
+/*
+Based on OGLSurfaceShader
+
+*/
+object FESOGLSurfaceShader: OGLInlineShader {};
+
+/// default constructor
+function FESOGLSurfaceShader() {
+  // Avoid calling the init method if this default constructor is being invoked 
+  // during the construction of a derived object.
+  if(this.type() == FESOGLSurfaceShader)
+    this.init(String(this.type()));
+}
+
+/// default constructor taking a name
+function FESOGLSurfaceShader(String name) {
+  this.init(name);
+}
+
+/// initialize the shader using a name.
+/// \internal
+function FESOGLSurfaceShader.init!(String name) {
+  this.name = name;
+  this.setVertexCode("
+      #version 120 // We require OpenGL 2.1 for InlineDrawing, which supports GLSL 1.2
+      
+      uniform mat4 u_viewMatrix;
+      uniform mat4 u_projection;
+      uniform mat4 u_modelMatrix;
+      uniform mat3 u_normalMatrix;
+
+      uniform vec3 u_light0Position;
+      uniform vec4 u_light0Color;
+
+      attribute vec4 positions;
+      attribute vec3 normals;
+
+      varying vec3 v_normal;
+      varying vec4 v_position;
+      varying vec3 v_lightDir;
+      varying vec4 v_lightColor;
+      varying vec3 v_eyeVec;
+
+      void main(){
+        v_normal = u_normalMatrix * normals;
+        v_position = u_modelMatrix * positions;
+        vec4 v_positionInv = (u_viewMatrix * vec4(v_position.xyz, 1.0));
+        gl_Position = u_projection * v_positionInv;
+  
+        v_lightDir = (u_viewMatrix * vec4(u_light0Position, 1.0)).xyz - v_positionInv.xyz;
+        v_lightColor = u_light0Color;
+        v_eyeVec = -v_positionInv.xyz;
+      }
+    ");
+  this.setFragmentCode("
+      #version 120 // We require OpenGL 2.1 for InlineDrawing, which supports GLSL 1.2
+      
+      uniform vec4 u_ambientColor;
+      uniform vec4 u_diffuseColor;
+      uniform vec4 u_specularColor;
+      uniform float u_specularFactor;
+      uniform float u_alpha;
+      uniform int u_normalIsTangent;
+      uniform int u_doubleSided;
+
+      varying vec3 v_normal;
+      varying vec4 v_position;
+      varying vec3 v_lightDir;
+      varying vec4 v_lightColor;
+      varying vec3 v_eyeVec;
+
+      void main() {
+        vec4 final_color = u_ambientColor;
+
+
+        vec3 N;
+        if(u_normalIsTangent == 0)
+          N = normalize(v_normal);
+        else
+        {
+          N = normalize(cross(v_normal, cross(v_normal, v_eyeVec)));
+        }
+        if(dot(N, v_eyeVec) < 0.0)
+          N = -N;
+        vec3 L = normalize(v_lightDir);
+
+        float lambertTerm = dot(N,L);
+        if(u_doubleSided != 0)
+          lambertTerm = abs(lambertTerm);
+        
+        if(lambertTerm > 0.0)
+        {
+          final_color += v_lightColor * u_diffuseColor * lambertTerm; 
+          vec3 E = normalize(v_eyeVec);
+          vec3 R = reflect(-L, N);
+          float specular = pow( max(dot(R, E), 0.0), u_specularFactor );
+          final_color += u_specularColor * specular;  
+        }
+        final_color.a = u_alpha;
+        gl_FragColor = final_color;
+      }
+    ");  
+  this.defineUniform(InlineUniform("u_viewMatrix", Mat44()));
+  this.defineUniform(InlineUniform("u_projection", Mat44()));
+  this.defineUniform(InlineUniform("u_modelMatrix", Mat44()));
+  this.defineUniform(InlineUniform("u_normalMatrix", Mat33()));
+
+  this.defineUniform(InlineUniform("u_light0Position", Vec3(100, 100, 100)));
+  this.defineUniform(InlineUniform("u_light0Color", Color(1.0, 1.0, 1.0)));
+
+  this.defineUniform(InlineUniform("u_ambientColor", Color(0.05, 0.05, 0.05)));
+  this.defineUniform(InlineUniform("u_diffuseColor", Color(0.0, 1.0, 0.0)));
+  this.defineUniform(InlineUniform("u_specularColor", Color(0.2, 0.2, 0.2)));
+  this.defineUniform(InlineUniform("u_specularFactor", 16.0));
+  this.defineUniform(InlineUniform("u_alpha", 1.0));
+  this.defineUniform(InlineUniform("u_normalIsTangent", Integer(0)));
+  this.defineUniform(InlineUniform("u_doubleSided", Integer(0)));
+
+  this.defineAttribute('positions', "Vec3");
+  this.defineAttribute('normals', "Vec3");
+}
+
+/// called by the InlineDrawing, should not be called manually
+/// \internal
+function Boolean FESOGLSurfaceShader.draw!(io DrawContext context) {
+
+  if(this.getName() == 'debug')
+   report('FESOGLSurfaceShader.draw '+this.getName());
+
+  if(context.lightPositions.size() > 0)
+    this.setUniform(InlineUniform('u_light0Position', context.lightPositions[0]));
+  else
+    this.setUniform(InlineUniform('u_light0Position', context.viewport.getCamera().getMat44().translation()));
+
+  if(context.lightColors.size() > 0)
+    this.setUniform(InlineUniform('u_light0Color', context.lightColors[0]));
+   
+  glEnable(GL_CULL_FACE);
+  glCullFace(GL_BACK); 
+
+  glDepthFunc(GL_LEQUAL);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  //glDepthMask(GL_FALSE);
+  
+  /*glEnable(GL_POLYGON_OFFSET_FILL);
+  glPolygonOffset(0.0, -5000.0);*/
+
+  glDepthRange(0.0, 0.59983);
+  
+  //glDisable(GL_DEPTH_TEST);
+  Boolean result = this.parent.draw(context);
+  //glEnable(GL_DEPTH_TEST);
+  //glDepthMask(GL_TRUE);
+
+  glDisable(GL_POLYGON_OFFSET_FILL);
+
+  return result;
+}
